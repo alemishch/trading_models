@@ -214,7 +214,7 @@ def compute_hurst_returns(returns):
 
 ### features by category
 
-def process_volatility_features(df_daily, volatility_df, window, trading_days=252):
+def process_volatility_features(df_daily, volatility_df, window, trading_days=365):
     volatility_df[f"Historical_Volatility_{window}"] = calculate_historical_volatility(
         df_daily["Log_Returns"], window=window, trading_days=trading_days
     )
@@ -287,7 +287,7 @@ def process_returns_features(returns, features_df, window):
     features_df["Omega_Ratio"] = calculate_omega_ratio(returns, threshold=0.0, window=window)
 
 
-def process_volatility_data(ticker, data_path, windows, trading_days=252):
+def process_volatility_data(ticker, data_path, windows, trading_days=365):
     df = load_data(ticker, data_path)
     if df is None or df.empty:
         print(f"No data for {ticker}.")
@@ -334,7 +334,7 @@ def process_volatility_data(ticker, data_path, windows, trading_days=252):
     all_features.to_csv(f"all_features_{ticker}.csv")
     return all_features
 
-def process_rets_data(rets_path, output_path, windows, trading_days=252):
+def process_rets_data(rets_path, output_path, windows, trading_days=365):
     try:
         rets_df = pd.read_csv(rets_path, index_col=0, parse_dates=[0], low_memory=False)
         rets_df = rets_df.sort_index()
@@ -380,7 +380,7 @@ def main():
     rets_path = "rets.csv" 
     output_rets_features = "rets_features.csv" 
     tickers = ["BTCUSDT"]  
-    trading_days = 252
+    trading_days = 365
     windows = [10, 30]
     
     for ticker in tickers:
