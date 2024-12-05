@@ -13,7 +13,7 @@ def load_data(ticker, data_path):
             os.path.join(data_path, f"{ticker}.csv"),
             index_col=0,
             parse_dates=[0],
-            low_memory=False  # Prevent DtypeWarning
+            low_memory=False  
         )
         df.columns = df.columns.str.lower()
         return df
@@ -21,7 +21,7 @@ def load_data(ticker, data_path):
         print(f"Error loading data for {ticker}: {e}")
         return None
 
-### volatility 
+### Volatility Features
 
 def calculate_log_returns(df):
     return np.log(df['close'] / df['close'].shift(1)).dropna()
@@ -29,7 +29,7 @@ def calculate_log_returns(df):
 def calculate_atr(df, window=14):
     atr = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=window)
     atr_values = atr.average_true_range()
-    atr_values = np.maximum(atr_values, 0)  
+    atr_values = np.maximum(atr_values, 0)  # Ensure non-negative
     return atr_values
 
 def calculate_bollinger_bands(df, window=20, window_dev=2):
@@ -43,12 +43,12 @@ def calculate_bollinger_bands(df, window=20, window_dev=2):
 
 def calculate_ewma_volatility(returns, span=30, trading_days=252):
     ewma_variance = returns.ewm(span=span, adjust=False).mean()
-    ewma_volatility = np.sqrt(np.maximum(ewma_variance, 0)) * np.sqrt(trading_days)  # Ensure non-negative
+    ewma_volatility = np.sqrt(np.maximum(ewma_variance, 0)) * np.sqrt(trading_days)  
     return ewma_volatility
 
 def calculate_historical_volatility(returns, window=30, trading_days=252):
     hv = returns.rolling(window=window).std() * np.sqrt(trading_days)
-    hv = np.maximum(hv, 0)  # Ensure non-negative
+    hv = np.maximum(hv, 0)  
     return hv
 
 def calculate_realized_volatility(df, window=30, trading_days=252):
@@ -56,7 +56,7 @@ def calculate_realized_volatility(df, window=30, trading_days=252):
     daily_rv = intraday_returns.groupby(intraday_returns.index.date).apply(lambda x: np.sqrt(np.sum(x**2)))
     daily_rv.index = pd.to_datetime(daily_rv.index)
     realized_volatility = daily_rv.rolling(window=window).mean() * np.sqrt(trading_days)
-    realized_volatility = np.maximum(realized_volatility, 0)  # Ensure non-negative
+    realized_volatility = np.maximum(realized_volatility, 0) 
     return realized_volatility
 
 def calculate_parkinson_volatility(df, window=30, trading_days=252):
@@ -94,7 +94,7 @@ def calculate_volatility_of_volatility(volatility, window=30):
     vol_of_vol = volatility.rolling(window).std()
     return vol_of_vol
 
-### trend Features
+### Trend Features
 
 def calculate_macd(df, window_slow=26, window_fast=12, window_sign=9):
     macd = ta.trend.MACD(close=df['close'], window_slow=window_slow, window_fast=window_fast, window_sign=window_sign)
@@ -151,7 +151,7 @@ def compute_ou_theta(prices):
     except Exception:
         return np.nan
 
-### returns
+### Returns Features
 
 def calculate_acf(returns, lags=10):
     acf_values = [returns.autocorr(lag=i) for i in range(1, lags + 1)]
@@ -164,41 +164,45 @@ def calculate_sharpe_ratio(returns, window=30, risk_free_rate=0.0, trading_days=
     rolling_mean = returns.rolling(window).mean()
     rolling_std = returns.rolling(window).std()
     sharpe = (rolling_mean - (risk_free_rate / trading_days)) / rolling_std * np.sqrt(trading_days)
-    sharpe = np.where(rolling_std != 0, sharpe, np.nan)  # Handle division by zero
     sharpe = pd.Series(sharpe, index=returns.index)
+    sharpe = sharpe.where(rolling_std != 0, np.nan)  # Handle division by zero using pandas
     return sharpe
 
 def calculate_sortino_ratio(returns, window=30, risk_free_rate=0.0, trading_days=252):
     rolling_mean = returns.rolling(window).mean()
     rolling_std_down = returns.where(returns < 0).rolling(window).std()
     sortino = (rolling_mean - (risk_free_rate / trading_days)) / rolling_std_down * np.sqrt(trading_days)
-    sortino = sortino.where(rolling_std_down != 0, np.nan)  
+    sortino = sortino.where(rolling_std_down != 0, np.nan)  # Use Pandas' where for alignment
     return sortino
 
 def calculate_calmar_ratio(returns, window=30, trading_days=252):
     rolling_return = (1 + returns).rolling(window).apply(lambda x: x.prod(), raw=True) - 1
     rolling_drawdown = calculate_max_drawdown_duration(rolling_return)
     calmar = rolling_return / np.abs(rolling_drawdown)
-    calmar = np.where(rolling_drawdown != 0, calmar, np.nan)
     calmar = pd.Series(calmar, index=returns.index)
+    calmar = calmar.where(rolling_drawdown != 0, np.nan)
     return calmar
 
 def calculate_omega_ratio(returns, threshold=0.0, window=30):
-    excess_returns = returns - threshold
-    omega = (excess_returns[excess_returns > 0].sum() + threshold * (excess_returns > 0).sum()) / \
-            (np.abs(excess_returns[excess_returns < 0].sum()) + threshold * (excess_returns < 0).sum())
+    omega = returns.rolling(window).apply(
+        lambda x: (x[x > threshold].sum()) / (np.abs(x[x < threshold].sum()) + 1e-10) if len(x[x < threshold]) > 0 else np.nan,
+        raw=False
+    )
     return omega
 
-def calculate_jarque_bera(returns):
-    jb_statistic, jb_pvalue = stats.jarque_bera(returns)
-    return jb_statistic, jb_pvalue
+def calculate_jarque_bera(returns, window=30):
+    jb_stat = returns.rolling(window).apply(lambda x: stats.jarque_bera(x)[0], raw=False)
+    jb_pvalue = returns.rolling(window).apply(lambda x: stats.jarque_bera(x)[1], raw=False)
+    return pd.DataFrame({'Jarque-Bera_statistic': jb_stat, 'Jarque-Bera_pvalue': jb_pvalue})
 
 def calculate_skewness_kurtosis(returns, window=30):
     skew = returns.rolling(window).skew()
     kurtosis = returns.rolling(window).kurt()
-    skew = np.where(skew >= -5, skew, np.nan)  # Handle extreme skewness
-    kurtosis = np.where(kurtosis >= -10, kurtosis, np.nan)  # Handle extreme kurtosis
-    return pd.DataFrame({'skewness': skew, 'kurtosis': kurtosis}, index=returns.index)
+    skew = pd.Series(skew, index=returns.index)
+    kurtosis = pd.Series(kurtosis, index=returns.index)
+    skew = skew.where(skew >= -5, np.nan)  # Handle extreme skewness
+    kurtosis = kurtosis.where(kurtosis >= -10, np.nan)  # Handle extreme kurtosis
+    return pd.DataFrame({'skewness': skew, 'kurtosis': kurtosis})
 
 def calculate_cumulative_returns(returns):
     return (1 + returns).cumprod() - 1
@@ -212,7 +216,7 @@ def compute_hurst_returns(returns):
     except Exception:
         return np.nan
 
-### features by category
+### Features by Category
 
 def process_volatility_features(df_daily, volatility_df, window, trading_days=365):
     volatility_df[f"Historical_Volatility_{window}"] = calculate_historical_volatility(
@@ -277,22 +281,24 @@ def process_returns_features(returns, features_df, window):
     for lag in range(1, 11):
         features_df[f"ACF_Lag_{lag}_{window}"] = returns.rolling(window).apply(lambda x: x.autocorr(lag=lag), raw=False)
     
-    jb_stat, jb_p = calculate_jarque_bera(returns)
-    features_df["Jarque-Bera_statistic"] = jb_stat
-    features_df["Jarque-Bera_pvalue"] = jb_p
+    jb = calculate_jarque_bera(returns, window=window)
+    features_df["Jarque-Bera_statistic"] = jb['Jarque-Bera_statistic']
+    features_df["Jarque-Bera_pvalue"] = jb['Jarque-Bera_pvalue']
     
-    features_df["VaR_95"] = returns.rolling(window).quantile(0.05)
-    features_df["CVaR_95"] = returns.rolling(window).apply(lambda x: x[x <= x.quantile(0.05)].mean() if len(x[x <= x.quantile(0.05)]) > 0 else np.nan, raw=False)
+    features_df[f"VaR_95_{window}"] = returns.rolling(window).quantile(0.05)
+    features_df[f"CVaR_95_{window}"] = returns.rolling(window).apply(
+        lambda x: x[x <= x.quantile(0.05)].mean() if len(x[x <= x.quantile(0.05)]) > 0 else np.nan,
+        raw=False
+    )
     
-    features_df["Omega_Ratio"] = calculate_omega_ratio(returns, threshold=0.0, window=window)
-
+    features_df[f"Omega_Ratio_{window}"] = calculate_omega_ratio(returns, threshold=0.0, window=window)
 
 def process_volatility_data(ticker, data_path, windows, trading_days=365):
     df = load_data(ticker, data_path)
     if df is None or df.empty:
         print(f"No data for {ticker}.")
         return
-
+    
     df_daily = df.resample("D").agg({
         "close": "last",
         "high": "max",
@@ -300,11 +306,11 @@ def process_volatility_data(ticker, data_path, windows, trading_days=365):
         "open": "first",
         "volume": "sum"
     }).dropna()
-
+    
     if df_daily.empty:
         print(f"No daily data for {ticker}.")
         return
-
+    
     df_daily["Log_Returns"] = calculate_log_returns(df_daily)
     df_daily["Cumulative_Returns"] = calculate_cumulative_returns(df_daily["Log_Returns"])
     
@@ -328,60 +334,58 @@ def process_volatility_data(ticker, data_path, windows, trading_days=365):
     
     all_features = features_df.copy()
     
-    #numeric_columns = all_features.select_dtypes(include=[np.number]).columns
-    #all_features[numeric_columns] = all_features[numeric_columns].applymap(lambda x: x if x >=0 else np.nan)
+    # numeric_columns = all_features.select_dtypes(include=[np.number]).columns
+    # all_features[numeric_columns] = all_features[numeric_columns].applymap(lambda x: x if x >=0 else np.nan)
     
     all_features.to_csv(f"all_features_{ticker}.csv")
     return all_features
 
-def process_rets_data(rets_path, output_path, windows, trading_days=365):
+def process_rets_data(rets_path, output_dir, windows, trading_days=365):
     try:
         rets_df = pd.read_csv(rets_path, index_col=0, parse_dates=[0], low_memory=False)
         rets_df = rets_df.sort_index()
     except Exception as e:
-        print(f"Error loading rets.csv: {e}")
+        print(f"{e}")
         return
     
     strategies = [col for col in rets_df.columns if col.lower() not in ['cash']]
     
     if not strategies:
-        print("No strategies found in rets.csv.")
+        print("No strategies found")
         return
-    
-    features_df = pd.DataFrame(index=rets_df.index)
     
     for strategy in strategies:
         returns = rets_df[strategy].dropna()
+        
+        strategy_features_df = pd.DataFrame(index=returns.index)
+        
         for window in windows:
-            process_returns_features(returns, features_df, window)
+            process_returns_features(returns, strategy_features_df, window)
+        
+        strategy_features_df["Cumulative_Returns"] = calculate_cumulative_returns(returns)
+        strategy_features_df["Log_Returns"] = np.log(1 + returns).dropna()
+        
+        strategy_features_df["Volatility_of_Volatility_30"] = calculate_volatility_of_volatility(
+            returns.rolling(window=30).std(), window=30
+        )
+        strategy_features_df["Max_Drawdown_Duration_30"] = calculate_max_drawdown_duration(
+            strategy_features_df["Cumulative_Returns"]
+        ).rolling(window=30).max()
+        
+        strategy_features_path = os.path.join(output_dir, f"{strategy}_returns_features.csv")
+        strategy_features_df.to_csv(strategy_features_path)
     
-    # cumulative and log returns based on average of all strategies
-    average_returns = rets_df[strategies].mean(axis=1).dropna()
-    features_df["Cumulative_Returns"] = calculate_cumulative_returns(average_returns)
-    features_df["Log_Returns"] = np.log(1 + average_returns).dropna()
-    
-    # additional returns metrics
-    features_df["Volatility_of_Volatility_30"] = calculate_volatility_of_volatility(
-        rets_df[strategies].mean(axis=1).rolling(window=30).std(), window=30
-    )
-    features_df["Max_Drawdown_Duration_30"] = calculate_max_drawdown_duration(
-        features_df["Cumulative_Returns"]
-    ).rolling(window=30).max()
-    
-    #numeric_columns = features_df.select_dtypes(include=[np.number]).columns
-    #features_df[numeric_columns] = features_df[numeric_columns].applymap(lambda x: x if x >=0 else np.nan)
-    
-    features_df.to_csv(output_path)
-    return features_df
-
+    return
 
 def main():
-    data_path = ""  ######
-    rets_path = "rets.csv" 
-    output_rets_features = "rets_features.csv" 
-    tickers = ["BTCUSDT"]  
+    data_path = "BTCUSDT.csv"  
+    rets_path = "rets.csv"      
+    output_rets_features_dir = "returns_features"  
+    tickers = ["BTCUSDT"]                
     trading_days = 365
     windows = [10, 30]
+    
+    os.makedirs(output_rets_features_dir, exist_ok=True)
     
     for ticker in tickers:
         ticker_file = os.path.join(data_path, f"{ticker}.csv")
@@ -391,7 +395,7 @@ def main():
             print(f"{ticker}.csv not found")
     
     if os.path.isfile(rets_path):
-        process_rets_data(rets_path, output_rets_features, windows, trading_days)
+        process_rets_data(rets_path, output_rets_features_dir, windows, trading_days)
     else:
         print(f"{rets_path} not found")
 
