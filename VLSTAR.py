@@ -9,13 +9,18 @@ import seaborn as sns
 import os
 
 def select_columns(df, metrics, windows):
-    selected_columns = [
-        col for col in df.columns
-        if any(metric in col for metric in metrics) and any(f"_{window}" in col for window in windows)
-    ]
+    selected_columns = []
+    for metric in metrics:
+        for window in windows:
+            if f'Sharpe_Ratio_{window}' in df.columns:
+                selected_columns.append(f'Sharpe_Ratio_{window}')
+            if f'Mean_Returns_{window}' in df.columns:
+                selected_columns.append(f'Mean_Returns_{window}')
+            if f'ACF_Lag_1_{window}' in df.columns:
+                selected_columns.append(f'ACF_Lag_1_{window}')
     return df[selected_columns]
 
-windows = [30]
+windows = [30, 60, 90]
 metrics = [
     'Realized_Volatility', 'Garman_Klass_Volatility', 'OU_Theta', 'Hurst', 'Momentum', 'RSI', 'ADX'
 ]
@@ -30,10 +35,17 @@ for file in os.listdir(returns_features_path):
     if file.endswith('_returns_features.csv'):
         strategy_name = file.replace('_returns_features.csv', '')
         df = pd.read_csv(os.path.join(returns_features_path, file), index_col=0, parse_dates=[0], low_memory=False)
-        df_selected = df[['Mean_Returns_30', 'ACF_Lag_1_30', 'Sharpe_Ratio_60']]
+        # Select relevant columns for all windows
+        selected_columns = []
+        for window in windows:
+            selected_columns.extend([
+                f'Mean_Returns_{window}', 
+                f'ACF_Lag_1_{window}', 
+                f'Sharpe_Ratio_{window}'
+            ])
+        df_selected = df[selected_columns]
         df_selected = df_selected.resample('D').ffill()
         strategies_data[strategy_name] = df_selected
-
 
 merged_data = {}
 for strategy, df in strategies_data.items():
@@ -42,7 +54,6 @@ for strategy, df in strategies_data.items():
         merged_df = merged_df.dropna(axis=1, thresh=0.7 * len(merged_df))
         merged_df = merged_df.dropna()
         merged_data[strategy] = merged_df
-
 
 def split_train_test(merged_data):
     train_data = {}
@@ -60,7 +71,7 @@ def split_train_test(merged_data):
     return train_data, test_data
 
 train_data, test_data = split_train_test(merged_data)
-strategy_names=train_data.keys()
+strategy_names = train_data.keys()
 
 REGIME_COLOR_MAPPING = {
     'Low': 'red',
@@ -71,18 +82,19 @@ REGIME_COLOR_MAPPING = {
 def get_regime_colors(regime_labels):
     return [REGIME_COLOR_MAPPING.get(label, 'gray') for label in regime_labels]
 
-def visualize_regimes(test_data, test_regime_labels, strategy, method_name='Clustering'):
+def visualize_regimes(test_data, test_regime_labels, strategy, window, method_name='Clustering'):
     df_test = test_data[strategy].copy()
-    df_test['Regime_Label'] = test_regime_labels[strategy]
+    regimes = test_regime_labels[window][strategy]
+    df_test['Regime_Label'] = regimes
     df_test['datetime'] = df_test.index  # Ensure datetime is available for plotting
     
     plt.figure(figsize=(15,7))
     
-    plt.plot(df_test['datetime'], df_test['Sharpe_Ratio_60'], label='Sharpe Ratio', color='black', linewidth=1)
+    plt.plot(df_test['datetime'], df_test[f'Sharpe_Ratio_{window}'], label=f'Sharpe Ratio {window}D', color='black', linewidth=1)
     
     colors = get_regime_colors(df_test['Regime_Label'])
     
-    plt.scatter(df_test['datetime'], df_test['Sharpe_Ratio_60'], 
+    plt.scatter(df_test['datetime'], df_test[f'Sharpe_Ratio_{window}'], 
                 c=colors, label='Regime', alpha=0.6, marker='o')
     
     handles = []
@@ -98,15 +110,16 @@ def visualize_regimes(test_data, test_regime_labels, strategy, method_name='Clus
         labels.append('Noise')
     
     plt.legend(handles, labels)
-    plt.title(f'Sharpe Ratio Over Time with {method_name} Market Regimes for {strategy} (Test Set)')
+    plt.title(f'Sharpe Ratio Over Time with {method_name} Market Regimes for {strategy} ({window}-Day) (Test Set)')
     plt.xlabel('Date')
     plt.ylabel('Sharpe Ratio')
     plt.tight_layout()
+    # plt.savefig(f'graph/vlstar/sharpe_{window}/test_{strategy}.png')
     plt.show()
 
 def pad_truncate_sequences(sequences, max_length):
     """
-    makes sequences of same length
+    Makes sequences of same length
     """
     fixed_length_sequences = []
     for seq in sequences:
@@ -120,135 +133,174 @@ def pad_truncate_sequences(sequences, max_length):
     return np.array(fixed_length_sequences)
 
 def scale_sequences_fit_transform(sequences):
-    #for train
+    # For train
     scaler = StandardScaler()
     scaler.fit(sequences)
     scaled_sequences = scaler.transform(sequences)
     return scaled_sequences, scaler
 
 def scale_sequences_transform(sequences, scaler):
-    #for test
+    # For test
     scaled_sequences = scaler.transform(sequences)
     return scaled_sequences
 
-def fit_vlstar(train_data, n_clusters=3):
-    kmedoids_models = {}
-    scalers = {}
-    train_labels = {}
-    X_train_scaled_dict = {}
+def fit_vlstar(train_data, windows, n_clusters=3):
+    kmedoids_models = {window: {} for window in windows}
+    scalers = {window: {} for window in windows}
+    train_labels = {window: {} for window in windows}
+    X_train_scaled_dict = {window: {} for window in windows}
     
-    for strategy in train_data.keys():
-        X_train = train_data[strategy]['Sharpe_Ratio_60'].values.tolist()
-        
-        X_train = np.array(X_train)
-        
-        max_length_train = X_train.shape[1] if X_train.ndim > 1 else 1
-        
-        if X_train.ndim == 1:
-            X_train = X_train.reshape(-1, 1)
-        
-        # pad and scale 
-        X_train_padded = pad_truncate_sequences(X_train, max_length_train)
-        X_train_scaled, scaler = scale_sequences_fit_transform(X_train_padded)
-        scalers[strategy] = scaler
-        X_train_scaled_dict[strategy] = X_train_scaled
-        
-        # distance matrix for train
-        n_train = X_train_scaled.shape[0]
-        distance_matrix = np.zeros((n_train, n_train))
-        for i in range(n_train):
-            for j in range(i + 1, n_train):
-                distance = dtw.distance(X_train_scaled[i], X_train_scaled[j])
-                distance_matrix[i, j] = distance
-                distance_matrix[j, i] = distance 
-        
-        # k-meoids with dist matrix
-        kmedoids = KMedoids(n_clusters=n_clusters, metric='precomputed', init='k-medoids++', random_state=42)
-        kmedoids.fit(distance_matrix)
-        
-        train_labels[strategy] = kmedoids.labels_
-        
-        kmedoids_models[strategy] = kmedoids
-        
+    for window in windows:
+        for strategy in train_data.keys():
+            X_train = train_data[strategy][f'Sharpe_Ratio_{window}'].values.tolist()
+            X_train = np.array(X_train)
+            
+            if X_train.ndim == 1:
+                X_train = X_train.reshape(-1, 1)
+            
+            # pad and scale
+            X_train_padded = pad_truncate_sequences(X_train, X_train.shape[1] if X_train.ndim > 1 else 1)
+            X_train_scaled, scaler = scale_sequences_fit_transform(X_train_padded)
+            scalers[window][strategy] = scaler
+            X_train_scaled_dict[window][strategy] = X_train_scaled
+            
+            # distance matrix for train
+            n_train = X_train_scaled.shape[0]
+            distance_matrix = np.zeros((n_train, n_train))
+            for i in range(n_train):
+                for j in range(i + 1, n_train):
+                    distance = dtw.distance(X_train_scaled[i], X_train_scaled[j])
+                    distance_matrix[i, j] = distance
+                    distance_matrix[j, i] = distance 
+            
+            # k-meoids with dist matrix
+            kmedoids = KMedoids(n_clusters=n_clusters, metric='precomputed', init='k-medoids++', random_state=42)
+            kmedoids.fit(distance_matrix)
+            
+            train_labels[window][strategy] = kmedoids.labels_
+            kmedoids_models[window][strategy] = kmedoids
+    
     return kmedoids_models, scalers, train_labels, X_train_scaled_dict
 
-
-def assign_test_labels(kmedoids_models, scalers, test_data, X_train_scaled_dict, n_clusters=3):
+def assign_test_labels(kmedoids_models, scalers, test_data, X_train_scaled_dict, windows, n_clusters=3):
     #label test data based on train
-    test_labels = {}
+    test_labels = {window: {} for window in windows}
     
-    for strategy in test_data.keys():
-        X_test = test_data[strategy]['Sharpe_Ratio_60'].values.tolist()
-        X_test = np.array(X_test)
-        
-        max_length_train = X_train_scaled_dict[strategy].shape[1] if X_train_scaled_dict[strategy].ndim > 1 else 1
-        
-        if X_test.ndim == 1:
-            X_test = X_test.reshape(-1, 1)
-        
-        X_test_padded = pad_truncate_sequences(X_test, max_length_train)
-        
-        scaler = scalers[strategy]
-        X_test_scaled = scale_sequences_transform(X_test_padded, scaler)
-        
-        kmedoids = kmedoids_models[strategy]
-        
-        medoid_indices = kmedoids.medoid_indices_
-        medoids = X_train_scaled_dict[strategy][medoid_indices]
-        
-        n_test = X_test_scaled.shape[0]
-        distances_test = np.zeros((n_test, n_clusters))
-        for i in range(n_test):
-            for j in range(n_clusters):
-                distances_test[i, j] = dtw.distance(X_test_scaled[i], medoids[j])
-        
-        test_labels[strategy] = distances_test.argmin(axis=1)
+    for window in windows:
+        for strategy in test_data.keys():
+            X_test = test_data[strategy][f'Sharpe_Ratio_{window}'].values.tolist()
+            X_test = np.array(X_test)
+            
+            if X_test.ndim == 1:
+                X_test = X_test.reshape(-1, 1)
+            
+            X_test_padded = pad_truncate_sequences(X_test, X_train_scaled_dict[window][strategy].shape[1] if X_train_scaled_dict[window][strategy].ndim > 1 else 1)
+            
+            scaler = scalers[window][strategy]
+            X_test_scaled = scale_sequences_transform(X_test_padded, scaler)
+            
+            kmedoids = kmedoids_models[window][strategy]
+            medoid_indices = kmedoids.medoid_indices_
+            medoids = X_train_scaled_dict[window][strategy][medoid_indices]
+            
+            n_test = X_test_scaled.shape[0]
+            distances_test = np.zeros((n_test, n_clusters))
+            for i in range(n_test):
+                for j in range(n_clusters):
+                    distances_test[i, j] = dtw.distance(X_test_scaled[i], medoids[j])
+            
+            test_labels[window][strategy] = distances_test.argmin(axis=1)
     
     return test_labels
 
-def map_clusters_to_regimes(train_data, train_labels, test_labels, regime_labels=['Low', 'Normal', 'High']):
-    #label names based on train
-    train_regime_labels = {}
-    test_regime_labels = {}
+def map_clusters_to_regimes(train_data, train_labels, test_labels, windows, regime_labels=['Low', 'Normal', 'High']):
+    train_regime_labels = {window: {} for window in windows}
+    test_regime_labels = {window: {} for window in windows}
     
-    for strategy in train_data.keys():
-        df_train = train_data[strategy].copy()
-        labels = train_labels[strategy]
-        df_train['Cluster'] = labels
-        
-        cluster_sharpe = df_train.groupby('Cluster')['Sharpe_Ratio_60'].mean()
-        
-        sorted_clusters = cluster_sharpe.sort_values().index.tolist()
-        
-        regime_mapping = {}
-        num_regimes = len(regime_labels)
-        if len(sorted_clusters) >= num_regimes:
-            for cluster, label in zip(sorted_clusters[:num_regimes], regime_labels):
-                regime_mapping[cluster] = label
-            for cluster in sorted_clusters[num_regimes:]:
-                regime_mapping[cluster] = f'Label_{cluster}'
-        else:
-            for cluster, label in zip(sorted_clusters, regime_labels):
-                regime_mapping[cluster] = label
-        
-        df_train['Regime_Label'] = df_train['Cluster'].map(regime_mapping)
-        train_regime_labels[strategy] = df_train['Regime_Label']
-        
-        labels_test = test_labels[strategy]
-        regime_label_test = []
-        for lbl in labels_test:
-            regime = regime_mapping.get(lbl, 'Noise')  # 'Noise' if label not found
-            regime_label_test.append(regime)
-        
-        test_regime_labels[strategy] = regime_label_test
-        
+    for window in windows:
+        for strategy in train_data.keys():
+            df_train = train_data[strategy].copy()
+            labels = train_labels[window][strategy]
+            df_train['Cluster'] = labels
+            
+            cluster_sharpe = df_train.groupby('Cluster')[f'Sharpe_Ratio_{window}'].mean()
+            sorted_clusters = cluster_sharpe.sort_values().index.tolist()
+            
+            regime_mapping = {}
+            num_regimes = len(regime_labels)
+            if len(sorted_clusters) >= num_regimes:
+                for cluster, label in zip(sorted_clusters[:num_regimes], regime_labels):
+                    regime_mapping[cluster] = label
+                for cluster in sorted_clusters[num_regimes:]:
+                    regime_mapping[cluster] = f'Label_{cluster}'
+            else:
+                for cluster, label in zip(sorted_clusters, regime_labels):
+                    regime_mapping[cluster] = label
+            
+            df_train['Regime_Label'] = df_train['Cluster'].map(regime_mapping)
+            train_regime_labels[window][strategy] = df_train['Regime_Label']
+            
+            labels_test = test_labels[window][strategy]
+            regime_label_test = []
+            for lbl in labels_test:
+                regime = regime_mapping.get(lbl, 'Noise')  # 'Noise' if label not found
+                regime_label_test.append(regime)
+            
+            test_regime_labels[window][strategy] = regime_label_test
+    
     return train_regime_labels, test_regime_labels
 
+def simulate_returns(test_data, test_regime_labels, window, strategy):
+    df_test = test_data[strategy].copy()
+    regimes = np.array(test_regime_labels[window][strategy])  
 
+    # always trade
+    df_test['Returns_Always_Trade'] = df_test[f'Mean_Returns_{window}']
+
+    # don't trade when Low
+    df_test['Returns_Conditional_Trade'] = df_test[f'Mean_Returns_{window}']
+    df_test.loc[regimes == 'Low', 'Returns_Conditional_Trade'] = 0  
+
+    # yield curve
+    df_test['Cumulative_Always_Trade'] = (1 + df_test['Returns_Always_Trade']).cumprod()
+    df_test['Cumulative_Conditional_Trade'] = (1 + df_test['Returns_Conditional_Trade']).cumprod()
+
+    # Sharpe
+    sharpe_always = df_test['Returns_Always_Trade'].mean() / df_test['Returns_Always_Trade'].std() if df_test['Returns_Always_Trade'].std() != 0 else np.nan
+    sharpe_conditional = df_test['Returns_Conditional_Trade'].mean() / df_test['Returns_Conditional_Trade'].std() if df_test['Returns_Conditional_Trade'].std() != 0 else np.nan
+
+    return df_test, sharpe_always, sharpe_conditional
+
+def plot_yield_curves(test_data, test_regime_labels, strategy, windows):
+    plt.figure(figsize=(18, 6 * len(windows)))
+
+    for idx, window in enumerate(windows, 1):
+        df_sim, sharpe_always, sharpe_conditional = simulate_returns(test_data, test_regime_labels, window, strategy)
+
+        plt.subplot(len(windows), 1, idx)
+        plt.plot(df_sim.index, df_sim['Cumulative_Always_Trade'], label='Always Trade', color='blue')
+        plt.plot(df_sim.index, df_sim['Cumulative_Conditional_Trade'], label='Conditional Trade', color='orange')
+
+        plt.title(f'Yield Curves for {strategy} - {window}-Day Sharpe Ratio')
+        plt.ylabel('Cumulative Returns')
+        plt.legend()
+        plt.grid(True)
+
+    
+        text_x = df_sim.index[int(len(df_sim) * 0.05)]  
+        text_y = df_sim['Cumulative_Always_Trade'].max() * 0.95  
+        plt.text(text_x, text_y,
+                 f"Sharpe Always: {sharpe_always:.2f}\nSharpe Conditional: {sharpe_conditional:.2f}",
+                 fontsize=12, bbox=dict(facecolor='white', alpha=0.6))
+
+    plt.tight_layout()
+    plt.savefig(f'graph/vlstar/simulation/{strategy}.png')
+    plt.show()
 
 
 kmedoids_models_vlstar, scalers_vlstar, vlstar_train_labels, X_train_scaled_dict = fit_vlstar(
     train_data, 
+    windows,
     n_clusters=3
 )
 
@@ -257,17 +309,22 @@ vlstar_test_labels = assign_test_labels(
     scalers_vlstar, 
     test_data, 
     X_train_scaled_dict, 
+    windows,
     n_clusters=3
 )
-
 
 vlstar_train_regime_labels, vlstar_test_regime_labels = map_clusters_to_regimes(
     train_data, 
     vlstar_train_labels, 
     vlstar_test_labels, 
+    windows,
     regime_labels=['Low', 'Normal', 'High']
 )
 
 
+# for strategy in strategy_names:
+#     for window in windows:
+#         visualize_regimes(test_data, vlstar_test_regime_labels, strategy, window, method_name='VLSTAR')
+
 for strategy in strategy_names:
-    visualize_regimes(test_data, vlstar_test_regime_labels, strategy, method_name='VLSTAR')
+    plot_yield_curves(test_data, vlstar_test_regime_labels, strategy, windows)
