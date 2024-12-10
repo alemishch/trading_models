@@ -22,7 +22,7 @@ def select_columns(df, metrics, windows):
     return df[selected_columns]
 
 
-windows = [30, 60, 90]
+windows = [10, 30, 60, 90]
 # metrics = [
 #     "Realized_Volatility",
 #     "Garman_Klass_Volatility",
@@ -484,6 +484,151 @@ def plot_yield_curves(
     # plt.show()
 
 
+def simulate_and_sum_returns(
+    strategy_names,
+    windows,
+    test_sharpe_dict,
+    vlstar_test_regime_labels,
+    rets_df,
+    year="2024",
+):
+    sum_returns_always = rets_df[strategy_names].sum(axis=1)
+    sum_returns_always_yr = sum_returns_always.loc[f"{year}-01-01":f"{year}-12-31"]
+
+    cumulative_always = sum_returns_always_yr.cumsum()
+
+    sharpe_always_overall = (
+        sum_returns_always_yr.mean() / sum_returns_always_yr.std() * np.sqrt(365)
+        if sum_returns_always_yr.std() != 0
+        else np.nan
+    )
+
+    autocorrelation_always = sum_returns_always_yr.pct_change()
+
+    sum_returns_conditional = {
+        window: pd.Series(0.0, index=rets_df.index) for window in windows
+    }
+
+    for window in windows:
+        for strategy in strategy_names:
+            sharpe_series = test_sharpe_dict[strategy].get(
+                f"Sharpe_Ratio_{window}", None
+            )
+            if sharpe_series is None:
+                continue
+
+            regimes = vlstar_test_regime_labels[window][strategy]
+
+            df_sim, _, sharpe_conditional = simulate_returns(
+                test_sharpe=sharpe_series,
+                test_regime_labels=regimes,
+                strategy=strategy,
+                rets_df=rets_df,
+            )
+
+            df_sim = df_sim.reindex(rets_df.index, fill_value=0.0)
+
+            sum_returns_conditional[window] += df_sim["Returns_Conditional_Trade"]
+
+    # Filter for year
+    start_date = f"{year}-01-01"
+    end_date = f"{year}-12-31"
+    sum_returns_always_yr = sum_returns_always.loc[start_date:end_date]
+    sum_returns_conditional_yr = {
+        window: sum_returns_conditional[window].loc[start_date:end_date]
+        for window in windows
+    }
+
+    # cumulative sums
+    cumulative_always = sum_returns_always_yr.cumsum()
+    cumulative_conditional = {
+        window: sum_returns_conditional_yr[window].cumsum() for window in windows
+    }
+
+    # Compute Sharpe ratios and autocorrelations
+    sharpe_always_overall = (
+        sum_returns_always_yr.mean() / sum_returns_always_yr.std() * np.sqrt(365)
+        if sum_returns_always_yr.std() != 0
+        else np.nan
+    )
+    sharpe_conditional_overall = {}
+    autocorrelations = {}
+    for window in windows:
+        sum_returns_cond = sum_returns_conditional_yr[window]
+        sharpe_cond = (
+            sum_returns_cond.mean() / sum_returns_cond.std() * np.sqrt(365)
+            if sum_returns_cond.std() != 0
+            else np.nan
+        )
+        sharpe_conditional_overall[window] = sharpe_cond
+        autocorr = sum_returns_cond.pct_change().autocorr(lag=1)
+        autocorrelations[window] = autocorr
+
+    return (
+        cumulative_always,
+        cumulative_conditional,
+        sharpe_always_overall,
+        sharpe_conditional_overall,
+        autocorrelations,
+    )
+
+
+def plot_combined_yield_curves(
+    cumulative_always,
+    cumulative_conditional,
+    sharpe_always_overall,
+    sharpe_conditional_overall,
+    autocorrelations,
+    windows,
+    strategy_names,
+    year="2024",
+):
+    plt.figure(figsize=(15, 7))
+
+    for window in windows:
+        plt.plot(
+            cumulative_conditional[window],
+            label=f"Conditional Trade {window}-Day",
+            linestyle="--",
+        )
+
+    plt.plot(
+        cumulative_always,
+        label="Always Trade",
+        color="blue",
+    )
+
+    plt.title(f"Combined Yield Curves for All Strategies - {year}")
+    plt.xlabel("Date")
+    plt.ylabel("Cumulative Returns")
+    plt.legend()
+    plt.grid(True)
+
+    sharpe_text = f"Sharpe Always: {sharpe_always_overall:.2f}\n"
+    autocorr_text = ""
+    for window in windows:
+        sharpe_cond = sharpe_conditional_overall[window]
+        autocorr = autocorrelations[window]
+        sharpe_text += f"Sharpe Conditional {window}-Day: {sharpe_cond:.2f}\n"
+        autocorr_text += f"Autocorr {window}-Day Sharpe (lag=1): {autocorr:.2f}\n"
+
+    full_text = sharpe_text + autocorr_text
+
+    plt.text(
+        0.05,
+        0.95,
+        full_text,
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        verticalalignment="top",
+        bbox=dict(facecolor="white", alpha=0.6),
+    )
+
+    plt.tight_layout()
+    plt.savefig(f"graph/vlstar/combined_simulation_2024.png")
+    plt.show()
+
+
 rets = pd.read_csv(
     "rets.csv", index_col="datetime", parse_dates=["datetime"], low_memory=False
 )
@@ -554,16 +699,42 @@ for window in windows:
 #             rets_df=rets,
 #         )
 
-for strategy in strategy_names:
-    # print(test_data[strategy].head())
-    for apply_mode in [False, True]:
-        mode_text = "with_mode" if apply_mode else "no_mode"
-        print(f"Processing for {strategy}, Mode: {mode_text}")
-        plot_yield_curves(
-            test_sharpe=test_data[strategy],
-            test_regime_labels=vlstar_test_regime_labels,
-            strategy=strategy,
-            windows=windows,
-            rets_df=rets,
-            apply_mode=apply_mode,
-        )
+# for strategy in strategy_names:
+#     # print(test_data[strategy].head())
+#     for apply_mode in [False, True]:
+#         mode_text = "with_mode" if apply_mode else "no_mode"
+#         print(f"Processing for {strategy}, Mode: {mode_text}")
+#         plot_yield_curves(
+#             test_sharpe=test_data[strategy],
+#             test_regime_labels=vlstar_test_regime_labels,
+#             strategy=strategy,
+#             windows=windows,
+#             rets_df=rets,
+#             apply_mode=apply_mode,
+#         )
+
+(
+    cumulative_always,
+    cumulative_conditional,
+    sharpe_always_overall,
+    sharpe_conditional_overall,
+    autocorrelations,
+) = simulate_and_sum_returns(
+    strategy_names=strategy_names,
+    windows=windows,
+    test_sharpe_dict={strategy: test_data[strategy] for strategy in strategy_names},
+    vlstar_test_regime_labels=vlstar_test_regime_labels,
+    rets_df=rets,
+    year="2024",
+)
+
+plot_combined_yield_curves(
+    cumulative_always=cumulative_always,
+    cumulative_conditional=cumulative_conditional,
+    sharpe_always_overall=sharpe_always_overall,
+    sharpe_conditional_overall=sharpe_conditional_overall,
+    autocorrelations=autocorrelations,
+    windows=windows,
+    strategy_names=strategy_names,
+    year="2024",
+)
