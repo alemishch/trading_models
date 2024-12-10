@@ -409,9 +409,8 @@ def plot_yield_curves(
         regimes = test_regime_labels[window][strategy]
 
         if apply_mode:
-            rolling_sharpe = sharpe_series.rolling(window=5).mean()
             regimes = np.array(regimes)
-            regimes[rolling_sharpe < 0] = "Low"
+            regimes[sharpe_series < 0] = "Low"
 
         # Simulate returns
         df_sim, sharpe_always, sharpe_conditional = simulate_returns(
