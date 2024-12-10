@@ -425,7 +425,7 @@ def plot_yield_curves(
             "Conditional": sharpe_conditional,
         }
 
-        autocorr = sharpe_series.autocorr(lag=5)
+        autocorr = sharpe_series.autocorr(lag=1)
         autocorrelations[window] = autocorr
 
         plt.plot(
@@ -462,7 +462,7 @@ def plot_yield_curves(
         sharpe_cond = overall_sharpes[window]["Conditional"]
         autocorr = autocorrelations[window]
         sharpe_text += f"Sharpe Conditional {window}-Day: {sharpe_cond:.2f}\n"
-        autocorr_text += f"Autocorr {window}-Day Sharpe (lag=5): {autocorr:.2f}\n"
+        autocorr_text += f"Autocorr {window}-Day Sharpe (lag=1): {autocorr:.2f}\n"
 
     mode_status = "Enabled" if apply_mode else "Disabled"
     mode_text = f"Mode: {mode_status}\n"
@@ -481,7 +481,7 @@ def plot_yield_curves(
     plt.savefig(
         f"graph/vlstar/simulation_multiplier/combined_{strategy}_{'mode' if apply_mode else 'nomode'}.png"
     )
-    plt.show()
+    # plt.show()
 
 
 rets = pd.read_csv(
