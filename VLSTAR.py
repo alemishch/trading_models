@@ -425,7 +425,7 @@ def plot_yield_curves(
             "Conditional": sharpe_conditional,
         }
 
-        autocorr = sharpe_series.autocorr(lag=1)
+        autocorr = sharpe_series.pct_change().autocorr(lag=1)
         autocorrelations[window] = autocorr
 
         plt.plot(
