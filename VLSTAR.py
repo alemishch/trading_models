@@ -22,7 +22,7 @@ def select_columns(df, metrics, windows):
     return df[selected_columns]
 
 
-windows = [30]
+windows = [30, 60, 90]
 # metrics = [
 #     "Realized_Volatility",
 #     "Garman_Klass_Volatility",
@@ -94,8 +94,8 @@ def split_train_test(merged_data):
         else:
             df = df.sort_index()
 
-            train_df = df
-            test_df = df
+            train_df = df.copy()
+            test_df = df.copy()
 
             train_data[strategy] = train_df
             test_data[strategy] = test_df
@@ -185,7 +185,7 @@ def visualize_regimes(
     plt.ylabel("Sharpe Ratio")
     plt.tight_layout()
     plt.savefig(f"graph/vlstar/sharpe_{window}/{data_type}_{strategy}.png")
-    plt.show()
+    # plt.show()
 
 
 def pad_truncate_sequences(sequences, max_length):
@@ -373,10 +373,10 @@ def simulate_returns(
     )
 
     # yield curve
-    df_test["Cumulative_Always_Trade"] = (1 + df_test["Returns_Always_Trade"]).cumprod()
-    df_test["Cumulative_Conditional_Trade"] = (
-        1 + df_test["Returns_Conditional_Trade"]
-    ).cumprod()
+    df_test["Cumulative_Always_Trade"] = df_test["Returns_Always_Trade"].cumsum()
+    df_test["Cumulative_Conditional_Trade"] = df_test[
+        "Returns_Conditional_Trade"
+    ].cumsum()
 
     # Sharpe
     sharpe_always = (
@@ -436,7 +436,7 @@ def plot_yield_curves(test_sharpe, test_regime_labels, strategy, window, rets_df
 
     plt.tight_layout()
     plt.savefig(f"graph/vlstar/simulation_multiplier/{strategy}_{window}.png")
-    plt.show()
+    # plt.show()
 
 
 rets = pd.read_csv(
