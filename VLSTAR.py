@@ -23,23 +23,24 @@ def select_columns(df, metrics, windows):
 
 
 windows = [30]
-metrics = [
-    "Realized_Volatility",
-    "Garman_Klass_Volatility",
-    "OU_Theta",
-    "Hurst",
-    "Momentum",
-    "RSI",
-    "ADX",
-]
+# metrics = [
+#     "Realized_Volatility",
+#     "Garman_Klass_Volatility",
+#     "OU_Theta",
+#     "Hurst",
+#     "Momentum",
+#     "RSI",
+#     "ADX",
+# ]
 
-market_features = pd.read_csv(
-    "all_features_BTCUSDT.csv", index_col=0, parse_dates=[0], low_memory=False
-)
-market_features = select_columns(market_features, metrics, windows)
-market_features = market_features.resample("D").ffill()
+# market_features = pd.read_csv(
+#     "all_features_BTCUSDT.csv", index_col=0, parse_dates=[0], low_memory=False
+# )
+# market_features = select_columns(market_features, metrics, windows)
+# market_features = market_features.resample("D").ffill()
 
 strategies_data = {}
+merged_data = {}
 returns_features_path = "returns_features"
 for file in os.listdir(returns_features_path):
     if file.endswith("_returns_features.csv"):
@@ -55,24 +56,26 @@ for file in os.listdir(returns_features_path):
         for window in windows:
             selected_columns.extend(
                 [
-                    f"Mean_Returns_{window}",
-                    f"ACF_Lag_1_{window}",
+                    # f"Mean_Returns_{window}",
+                    # f"ACF_Lag_1_{window}",
                     f"Sharpe_Ratio_{window}",
                 ]
             )
         df_selected = df[selected_columns]
         df_selected = df_selected.resample("D").ffill()
         strategies_data[strategy_name] = df_selected
+        df_selected = df_selected.dropna()  ##
+        if len(df_selected > 0):  ##
+            merged_data[strategy_name] = df_selected  ##
 
-merged_data = {}
-for strategy, df in strategies_data.items():
-    merged_df = pd.merge(
-        market_features, df, left_index=True, right_index=True, how="inner"
-    )
-    if strategy in ["G59_V1", "G59_V2", "G90_V1", "G24"]:
-        merged_df = merged_df.dropna(axis=1, thresh=0.7 * len(merged_df))
-        merged_df = merged_df.dropna()
-        merged_data[strategy] = merged_df
+# for strategy, df in strategies_data.items():
+#     merged_df = pd.merge(
+#         market_features, df, left_index=True, right_index=True, how="inner"
+#     )
+#     if strategy in ["G59_V1", "G59_V2", "G90_V1", "G24"]:
+#         merged_df = merged_df.dropna(axis=1, thresh=0.7 * len(merged_df))
+#         merged_df = merged_df.dropna()
+#         merged_data[strategy] = merged_df
 
 
 def split_train_test(merged_data):
@@ -80,13 +83,22 @@ def split_train_test(merged_data):
     test_data = {}
 
     for strategy, df in merged_data.items():
-        df = df.sort_index()
+        if strategy in ["G59_V1", "G59_V2", "G90_V1", "G24", "G58_V1"]:
+            df = df.sort_index()
 
-        train_df = df[df.index.year != 2024]
-        test_df = df[df.index.year == 2024]
+            train_df = df[df.index.year != 2024]
+            test_df = df[df.index.year == 2024]
 
-        train_data[strategy] = train_df
-        test_data[strategy] = test_df
+            train_data[strategy] = train_df
+            test_data[strategy] = test_df
+        else:
+            df = df.sort_index()
+
+            train_df = df
+            test_df = df
+
+            train_data[strategy] = train_df
+            test_data[strategy] = test_df
 
     return train_data, test_data
 
@@ -333,22 +345,38 @@ def map_clusters_to_regimes(
     return train_regime_labels, test_regime_labels
 
 
-def simulate_returns(test_sharpe, test_regime_labels, strategy, rets_df):
+def simulate_returns(
+    test_sharpe,
+    test_regime_labels,
+    strategy,
+    rets_df,
+    multiplier_low=0.1,
+    multiplier_high=2.0,
+):
     df_test = test_sharpe.copy()
+
     regimes = np.array(test_regime_labels[strategy])
+
+    shifted_regimes = np.roll(regimes, 1)
+    shifted_regimes[0] = "Normal"
+
+    multipliers = np.ones_like(shifted_regimes, dtype=float)
+    multipliers[shifted_regimes == "Low"] = multiplier_low
+    multipliers[shifted_regimes == "High"] = multiplier_high
 
     # always trade
     df_test["Returns_Always_Trade"] = rets_df.loc[df_test.index, strategy].values
 
-    # don't trade when Low
-    df_test["Returns_Conditional_Trade"] = rets_df.loc[df_test.index, strategy].values
-    df_test.loc[regimes == "Low", "Returns_Conditional_Trade"] = 0
+    # apply multipliers
+    df_test["Returns_Conditional_Trade"] = (
+        rets_df.loc[df_test.index, strategy].values * multipliers
+    )
 
     # yield curve
-    df_test["Cumulative_Always_Trade"] = df_test["Returns_Always_Trade"].cumsum()
-    df_test["Cumulative_Conditional_Trade"] = df_test[
-        "Returns_Conditional_Trade"
-    ].cumsum()
+    df_test["Cumulative_Always_Trade"] = (1 + df_test["Returns_Always_Trade"]).cumprod()
+    df_test["Cumulative_Conditional_Trade"] = (
+        1 + df_test["Returns_Conditional_Trade"]
+    ).cumprod()
 
     # Sharpe
     sharpe_always = (
@@ -407,7 +435,7 @@ def plot_yield_curves(test_sharpe, test_regime_labels, strategy, window, rets_df
     )
 
     plt.tight_layout()
-    plt.savefig(f"graph/vlstar/simulation/{strategy}_{window}.png")
+    plt.savefig(f"graph/vlstar/simulation_multiplier/{strategy}_{window}.png")
     plt.show()
 
 
@@ -415,9 +443,6 @@ rets = pd.read_csv(
     "rets.csv", index_col="datetime", parse_dates=["datetime"], low_memory=False
 )
 rets = rets.resample("D").ffill()
-
-test_period_dates = next(iter(test_data.values())).index
-rets = rets.loc[rets.index.isin(test_period_dates)]
 
 
 kmedoids_models_vlstar = {window: {} for window in windows}
