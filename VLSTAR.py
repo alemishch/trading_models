@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn_extra.cluster import KMedoids
 from dtaidistance import dtw
-from scipy.stats import wasserstein_distance
+from scipy.stats import wasserstein_distance, skew, kurtosis
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -22,7 +22,7 @@ def select_columns(df, metrics, windows):
     return df[selected_columns]
 
 
-windows = [10, 30, 60, 90]
+windows = [30]
 # metrics = [
 #     "Realized_Volatility",
 #     "Garman_Klass_Volatility",
@@ -56,8 +56,8 @@ for file in os.listdir(returns_features_path):
         for window in windows:
             selected_columns.extend(
                 [
-                    # f"Mean_Returns_{window}",
-                    # f"ACF_Lag_1_{window}",
+                    f"Mean_Returns_{window}",
+                    f"ACF_Lag_1_{window}",
                     f"Sharpe_Ratio_{window}",
                 ]
             )
@@ -187,6 +187,13 @@ def visualize_regimes(
     plt.tight_layout()
     plt.savefig(f"graph/vlstar/sharpe_{window}/{data_type}_{strategy}.png")
     # plt.show()
+
+
+def sortino_ratio(returns, target=0):
+    downside = returns[returns < target]
+    expected_return = returns.mean() - target
+    downside_std = downside.std()
+    return expected_return / downside_std if downside_std != 0 else np.nan
 
 
 def pad_truncate_sequences(sequences, max_length):
@@ -393,7 +400,41 @@ def simulate_returns(
         else np.nan
     )
 
-    return df_test, sharpe_always, sharpe_conditional
+    # max drawdown
+    peak_always = df_test["Cumulative_Always_Trade"].cummax()
+    drawdown_always = (df_test["Cumulative_Always_Trade"] - peak_always) / peak_always
+    max_drawdown_always = drawdown_always.min()
+
+    peak_conditional = df_test["Cumulative_Conditional_Trade"].cummax()
+    drawdown_conditional = (
+        df_test["Cumulative_Conditional_Trade"] - peak_conditional
+    ) / peak_conditional
+    max_drawdown_conditional = drawdown_conditional.min()
+
+    # Sortino
+    sortino_always = sortino_ratio(df_test["Returns_Always_Trade"])
+    sortino_conditional = sortino_ratio(df_test["Returns_Conditional_Trade"])
+
+    # 3. Skewness and Kurtosis
+    skew_always = skew(df_test["Returns_Always_Trade"].dropna())
+    skew_conditional = skew(df_test["Returns_Conditional_Trade"].dropna())
+
+    kurtosis_always = kurtosis(df_test["Returns_Always_Trade"].dropna())
+    kurtosis_conditional = kurtosis(df_test["Returns_Conditional_Trade"].dropna())
+
+    return (
+        df_test,
+        sharpe_always,
+        sharpe_conditional,
+        max_drawdown_always,
+        max_drawdown_conditional,
+        sortino_always,
+        sortino_conditional,
+        skew_always,
+        skew_conditional,
+        kurtosis_always,
+        kurtosis_conditional,
+    )
 
 
 def plot_yield_curves(
@@ -646,6 +687,61 @@ rets = pd.read_csv(
 rets = rets.resample("D").ffill()
 
 
+def analyze_performance(
+    train_sharpe, train_regime_labels, strategy, rets_df, threshold=0.7
+):
+    (
+        df_train_sim,
+        sharpe_always,
+        sharpe_conditional,
+        max_dd_always,
+        max_dd_conditional,
+        sortino_always,
+        sortino_conditional,
+        skew_always,
+        skew_conditional,
+        kurtosis_always,
+        kurtosis_conditional,
+    ) = simulate_returns(
+        test_sharpe=train_sharpe,
+        test_regime_labels=train_regime_labels,
+        strategy=strategy,
+        rets_df=rets_df,
+    )
+
+    # find if better then always trade
+    comparison = (
+        df_train_sim["Cumulative_Conditional_Trade"]
+        >= df_train_sim["Cumulative_Always_Trade"]
+    )
+    percentage_better = comparison.mean()
+
+    works_good = percentage_better >= threshold
+
+    # metrics
+    log_sharpe = np.log(train_sharpe.replace(0, np.nan)).dropna()
+    autocorr = log_sharpe.autocorr(lag=1)
+
+    result = {
+        "strategy": strategy,
+        "sharpe_always": sharpe_always,
+        "sharpe_conditional": sharpe_conditional,
+        "max_drawdown_always": max_dd_always,
+        "max_drawdown_conditional": max_dd_conditional,
+        "sortino_always": sortino_always,
+        "sortino_conditional": sortino_conditional,
+        "skew_always": skew_always,
+        "skew_conditional": skew_conditional,
+        "kurtosis_always": kurtosis_always,
+        "kurtosis_conditional": kurtosis_conditional,
+        "percentage_better": percentage_better,
+        "works_good": works_good,
+        "autocorr_log_sharpe": autocorr,
+    }
+
+    return result
+
+
 kmedoids_models_vlstar = {window: {} for window in windows}
 scalers_vlstar = {window: {} for window in windows}
 vlstar_train_labels = {window: {} for window in windows}
@@ -711,7 +807,6 @@ for window in windows:
 #         )
 
 # for strategy in strategy_names:
-#     # print(test_data[strategy].head())
 #     for apply_mode in [False, True]:
 #         mode_text = "with_mode" if apply_mode else "no_mode"
 #         print(f"Processing for {strategy}, Mode: {mode_text}")
@@ -725,31 +820,65 @@ for window in windows:
 #         )
 
 
-for apply_mode in [True, False]:
-    (
-        cumulative_always,
-        cumulative_conditional,
-        sharpe_always_overall,
-        sharpe_conditional_overall,
-        autocorrelations,
-    ) = simulate_and_sum_returns(
-        strategy_names=strategy_names,
-        windows=windows,
-        test_sharpe_dict={strategy: test_data[strategy] for strategy in strategy_names},
-        vlstar_test_regime_labels=vlstar_test_regime_labels,
+# for apply_mode in [True, False]:
+#     (
+#         cumulative_always,
+#         cumulative_conditional,
+#         sharpe_always_overall,
+#         sharpe_conditional_overall,
+#         autocorrelations,
+#     ) = simulate_and_sum_returns(
+#         strategy_names=strategy_names,
+#         windows=windows,
+#         test_sharpe_dict={strategy: test_data[strategy] for strategy in strategy_names},
+#         vlstar_test_regime_labels=vlstar_test_regime_labels,
+#         rets_df=rets,
+#         year="2024",
+#         apply_mode=apply_mode,
+#     )
+
+#     plot_combined_yield_curves(
+#         cumulative_always=cumulative_always,
+#         cumulative_conditional=cumulative_conditional,
+#         sharpe_always_overall=sharpe_always_overall,
+#         sharpe_conditional_overall=sharpe_conditional_overall,
+#         autocorrelations=autocorrelations,
+#         windows=windows,
+#         strategy_names=strategy_names,
+#         year="2024",
+#         apply_mode=apply_mode,
+#     )
+
+results = []
+for strategy in strategy_names:
+    window = 30
+    print(f"Strategy {strategy}")
+
+    train_sharpe_series = train_data[strategy][f"Sharpe_Ratio_{window}"]
+    train_regimes = vlstar_train_regime_labels[window][strategy]
+
+    analysis_result = analyze_performance(
+        train_sharpe=train_sharpe_series,
+        train_regime_labels=train_regimes,
+        strategy=strategy,
         rets_df=rets,
-        year="2024",
-        apply_mode=apply_mode,
+        threshold=0.7,
     )
 
-    plot_combined_yield_curves(
-        cumulative_always=cumulative_always,
-        cumulative_conditional=cumulative_conditional,
-        sharpe_always_overall=sharpe_always_overall,
-        sharpe_conditional_overall=sharpe_conditional_overall,
-        autocorrelations=autocorrelations,
-        windows=windows,
-        strategy_names=strategy_names,
-        year="2024",
-        apply_mode=apply_mode,
-    )
+    results.append(analysis_result)
+
+
+results_df = pd.DataFrame(results)
+
+
+good_cases = results_df[results_df["works_good"]]
+poor_cases = results_df[~results_df["works_good"]]
+
+avg_metrics_good = good_cases.mean(numeric_only=True)
+avg_metrics_poor = poor_cases.mean(numeric_only=True)
+
+print("\nAvg metrics for good performance:\n")
+print(avg_metrics_good)
+
+print("\nAvg metrics for poor performance:\n")
+print(avg_metrics_poor)
