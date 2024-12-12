@@ -475,83 +475,78 @@ def plot_yield_curves(
         sharpe_series = test_sharpe[f"{var}_{window}"]
         regimes = test_regime_labels
 
-        if apply_mode:
-            regimes = np.array(regimes)
-            regimes[sharpe_series < 0] = "Low"
+        regimes_default = np.array(regimes)
 
-        # Simulate returns
-        (
-            df_sim,
-            sharpe_always,
-            sharpe_conditional,
-            max_dd_always,
-            max_dd_conditional,
-            sortino_always,
-            sortino_conditional,
-            skew_always,
-            skew_conditional,
-            kurtosis_always,
-            kurtosis_conditional,
-            total_returns_lost,
-            total_returns_gained,
-        ) = simulate_returns(
-            test_sharpe=sharpe_series,
-            test_regime_labels=regimes,
-            strategy=strategy,
-            rets_df=rets_df,
-        )
+        regimes_mode1 = np.copy(regimes)
+        regimes_mode1[sharpe_series < 0] = "Low"
 
-        overall_sharpes[window] = {
-            "Always": sharpe_always,
-            "Conditional": sharpe_conditional,
-        }
+        regimes_mode2 = np.copy(regimes)
+        regimes_mode2[sharpe_series < 0] = "Low"
+        regimes_mode2[(regimes_mode1 == "Low") & (sharpe_series > 0)] = "Normal"
 
-        # Store additional metrics
-        max_drawdowns[window] = {
-            "Always": max_dd_always,
-            "Conditional": max_dd_conditional,
-        }
+        sharpe_text = f""
+        autocorr_text = f""
 
-        sortinos[window] = {
-            "Always": sortino_always,
-            "Conditional": sortino_conditional,
-        }
+        for idx, regime_mode in zip([0, 2], [regimes_default, regimes_mode2]):
+            for multiplier in [1.0, 2.0]:
+                # Simulate returns
+                (
+                    df_sim,
+                    sharpe_always,
+                    sharpe_conditional,
+                    max_dd_always,
+                    max_dd_conditional,
+                    sortino_always,
+                    sortino_conditional,
+                    skew_always,
+                    skew_conditional,
+                    kurtosis_always,
+                    kurtosis_conditional,
+                    total_returns_lost,
+                    total_returns_gained,
+                ) = simulate_returns(
+                    test_sharpe=sharpe_series,
+                    test_regime_labels=regime_mode,
+                    strategy=strategy,
+                    rets_df=rets_df,
+                    multiplier_high=multiplier,
+                )
 
-        skews[window] = {
-            "Always": skew_always,
-            "Conditional": skew_conditional,
-        }
+                overall_sharpes[window] = {
+                    "Always": sharpe_always,
+                    "Conditional": sharpe_conditional,
+                }
+                log_sharpe = np.log(
+                    df_sim[f"{var}_{window}"].replace(0, np.nan)
+                ).dropna()
+                autocorr = log_sharpe.autocorr(lag=1)
+                sharpe_cond = overall_sharpes[window]["Conditional"]
+                sharpe_text += (
+                    f"Sharpe mode{idx}, multiplier={multiplier}: {sharpe_cond:.2f}\n"
+                )
+                # autocorr_text += f"Autocorr mode{idx}, multiplier={multiplier} {var} (lag=1): {autocorr:.2f}\n"
 
-        kurtoses[window] = {
-            "Always": kurtosis_always,
-            "Conditional": kurtosis_conditional,
-        }
+                log_sharpe = np.log(sharpe_series.replace(0, np.nan)).dropna()
+                autocorr = log_sharpe.autocorr(lag=1)
+                autocorrelations[window] = autocorr
 
-        returns_lost[window] = total_returns_lost
-        returns_gained[window] = total_returns_gained
+                # conditional trade cumulative returns
+                ax1.plot(
+                    df_sim.index,
+                    df_sim["Cumulative_Conditional_Trade"],
+                    label=f"Conditional Trade {window}-Day, mode{idx}, multiplier={multiplier}",
+                    linestyle="--",
+                )
 
-        log_sharpe = np.log(sharpe_series.replace(0, np.nan)).dropna()
-        autocorr = log_sharpe.autocorr(lag=1)
-        autocorrelations[window] = autocorr
-
-        # conditional trade cumulative returns
-        ax1.plot(
-            df_sim.index,
-            df_sim["Cumulative_Conditional_Trade"],
-            label=f"Conditional Trade {window}-Day",
-            linestyle="--",
-        )
-
-        # Highlight Low
-        low_days = df_sim[df_sim["Regime"] == "Low"].index
-        ax1.scatter(
-            low_days,
-            df_sim.loc[low_days, "Cumulative_Conditional_Trade"],
-            color="red",
-            marker="v",
-            label=f"Not Trading {window}-Day" if window == windows[0] else "",
-            alpha=0.6,
-        )
+                # Highlight Low
+                low_days = df_sim[regime_mode == "Low"].index
+                ax1.scatter(
+                    low_days,
+                    df_sim.loc[low_days, "Cumulative_Conditional_Trade"],
+                    color="red",
+                    marker="v",
+                    alpha=0.6,
+                )
 
         ax2.scatter(
             df_sim.index,
@@ -601,42 +596,37 @@ def plot_yield_curves(
     ax2.set_ylabel("Sharpe Ratio")
     ax2.grid(True)
 
-    lost = returns_lost[window]
-    gained = returns_gained[window]
-    returns_lost_text = f"Returns Lost {window}-Day: {lost:.4f}\n"
-    returns_gained_text = f"Returns Gained {window}-Day: {gained:.4f}\n"
-
-    sharpe_text = f"Sharpe Always: {sharpe_always_overall:.2f}\n"
-    autocorr_text = ""
-    for window in windows:
-        sharpe_cond = overall_sharpes[window]["Conditional"]
-        autocorr = autocorrelations[window]
-        sharpe_text += f"Sharpe Conditional {window}-Day: {sharpe_cond:.2f}\n"
-        autocorr_text += f"Autocorr {window}-Day {var} (lag=1): {autocorr:.2f}\n"
+    # for window in windows:
+    #     sharpe_cond = overall_sharpes[window]["Conditional"]
+    #     autocorr = autocorrelations[window]
+    #     sharpe_text += f"Sharpe Conditional {window}-Day: {sharpe_cond:.2f}\n"
+    #     autocorr_text += f"Autocorr {window}-Day {var} (lag=1): {autocorr:.2f}\n"
 
     mode_status = "Enabled" if apply_mode else "Disabled"
     mode_text = f"Mode: {mode_status}\n"
-
+    sharpe_text += f"Sharpe Always: {sharpe_always_overall:.2f}\n"
+    autocorr_text = f"Autocorr initial: {autocorr:.2f}\n"
     full_text = (
-        mode_text
-        + sharpe_text
+        # mode_text
+        sharpe_text
         + autocorr_text
-        + returns_lost_text
-        + returns_gained_text
+        # + returns_lost_text
+        # + returns_gained_text
     )
 
-    plt.text(
-        0,
-        df_sim["Cumulative_Always_Trade"].max(),
+    ax1.text(
+        0.95,
+        0.95,
         full_text,
-        fontsize=12,
+        transform=ax1.transAxes,
+        fontsize=10,
         bbox=dict(facecolor="white", alpha=0.6),
+        verticalalignment="top",
+        horizontalalignment="right",
     )
 
     plt.tight_layout()
-    plt.savefig(
-        f"graph/vlstar/plots_full/{strategy}_{var}_{window}_{'mode' if apply_mode else 'nomode'}.png"
-    )
+    plt.savefig(f"graph/vlstar/mode_multiplier/{strategy}_{var}_{window}.png")
     plt.show()
 
 
@@ -984,18 +974,16 @@ strategy_names = ["G59_V1", "G59_V2", "G90_V1", "G24", "G58_V1"]
 for strategy in strategy_names:
     print(f"Strategy {strategy}")
     window = 30
-    for apply_mode in [True, False]:
-        test_sharpe_series = test_data[strategy][f"{var}_{window}"]
-        test_regimes = vlstar_test_regime_labels[window][strategy]
-        print(test_sharpe_series)
-        plot_yield_curves(
-            test_sharpe=test_sharpe_series.to_frame(),
-            test_regime_labels=test_regimes,
-            strategy=strategy,
-            windows=[30],
-            rets_df=rets,
-            apply_mode=apply_mode,
-        )
+    test_sharpe_series = test_data[strategy][f"{var}_{window}"]
+    test_regimes = vlstar_test_regime_labels[window][strategy]
+    plot_yield_curves(
+        test_sharpe=test_sharpe_series.to_frame(),
+        test_regime_labels=test_regimes,
+        strategy=strategy,
+        windows=[30],
+        rets_df=rets,
+        apply_mode=False,
+    )
 
 
 #     analysis_result = analyze_performance(
