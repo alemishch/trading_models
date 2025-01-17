@@ -11,15 +11,13 @@ matplotlib.use("TkAgg")
 
 
 period = 100
-train_start = "2023-03-01"
-train_end = "2023-03-10"
-test_end = "2023-03-15"
-train_start = pd.to_datetime(train_start)
-train_end = pd.to_datetime(train_end)
-test_end = pd.to_datetime(test_end)
+initial_train_start = "2023-03-01"
+train_window_length = 10
+test_window_length = 5
+final_test_end = "2023-03-30"
 
-plot_start_date = "2023-03-11"
-plot_end_date = "2023-03-12"
+plot_start_date = "2023-03-21"
+plot_end_date = "2023-03-22"
 
 
 def load_and_preprocess(csv_path):
@@ -30,6 +28,30 @@ def load_and_preprocess(csv_path):
     df.sort_index(inplace=True)
 
     return df
+
+
+def generate_rolling_windows(df, initial_start, train_len, test_len, final_end):
+    windows = []
+    current_train_start = pd.to_datetime(initial_start)
+    current_train_end = current_train_start + pd.Timedelta(days=train_len - 1)
+    current_test_start = current_train_end + pd.Timedelta(days=1)
+    current_test_end = current_test_start + pd.Timedelta(days=test_len - 1)
+
+    while current_test_end <= pd.to_datetime(final_end):
+        windows.append(
+            (
+                current_train_start,
+                current_train_end,
+                current_test_start,
+                current_test_end,
+            )
+        )
+        current_train_start += pd.Timedelta(days=test_len)
+        current_train_end = current_train_start + pd.Timedelta(days=train_len - 1)
+        current_test_start = current_train_end + pd.Timedelta(days=1)
+        current_test_end = current_test_start + pd.Timedelta(days=test_len - 1)
+
+    return windows
 
 
 def split_train_test(df):
@@ -272,65 +294,124 @@ def visualize_regimes(df, regime_labels, title="Regime Visualization"):
     plt.show()
 
 
-def main():
-    csv_path = "AAVEUSDT.csv"
-    # csv_output_path = "AAVEUSDT_output.csv"
-
-    df = load_and_preprocess(csv_path)
-
-    train_df, test_df = split_train_test(df)
-
-    feature_cols = [
-        f"mr_strength_ar_{period}",
-        f"hurst_{period}",
-        f"var_ratio_{period}",
-    ]
-    # feature_cols = [col for col in df.columns if "100" in col]
-
-    X_train, scaler = scale_fit_transform(train_df[feature_cols])
-    X_test = scale_transform(test_df[feature_cols], scaler)
-
-    # ----------------- HMM ------------------
-    hmm_model = fit_hmm(
-        X_train, n_components=3, covariance_type="full", n_iter=1000, random_state=42
-    )
-    hidden_states_train = predict_hmm(hmm_model, X_train)
-    state_to_regime = map_hmm_states_to_regimes(
-        X_train,
-        hidden_states_train,
-        train_df,
-        key_feature=f"mr_strength_ar_{period}",
-    )
-
-    hidden_states_test = predict_hmm(hmm_model, X_test)
-    regime_labels_test_hmm = [state_to_regime[s] for s in hidden_states_test]
-    kmed = fit_vlstar_kmedoids(X_train, n_clusters=3, random_state=42)
-    cluster_to_regime, cluster_labels_train = map_clusters_to_regimes_kmedoids(
-        kmed, train_df, key_feature=f"mr_strength_ar_{period}"
-    )
-    cluster_labels_test = predict_vlstar_kmedoids(kmed, X_test)
-    regime_labels_test_vlstar = [cluster_to_regime[c] for c in cluster_labels_test]
-
-    visualize_regimes(
-        test_df, regime_labels_test_hmm, title="HMM Mean Reversion Regimes (Test Set)"
-    )
-
-    visualize_regimes(
-        test_df,
-        regime_labels_test_vlstar,
-        title="VLSTAR (KMedoids) Mean Reversion Regimes (Test Set)",
-    )
-
+def append_predictions_to_df(df, test_indices, regime_hmm, regime_vlstar):
     if "regime_hmm" not in df.columns:
         df["regime_hmm"] = np.nan
 
     if "regime_vlstar" not in df.columns:
         df["regime_vlstar"] = np.nan
 
-    df.loc[test_df.index, "regime_hmm"] = regime_labels_test_hmm
-    df.loc[test_df.index, "regime_vlstar"] = regime_labels_test_vlstar
+    df.loc[test_indices, "regime_hmm"] = regime_hmm
+    df.loc[test_indices, "regime_vlstar"] = regime_vlstar
 
-    df.to_csv(csv_path)
+    return df
+
+
+def main():
+    csv_path = "AAVEUSDT.csv"
+    csv_output_path = "AAVEUSDT_output.csv"
+
+    df = load_and_preprocess(csv_path)
+
+    windows = generate_rolling_windows(
+        df,
+        initial_start=initial_train_start,
+        train_len=train_window_length,
+        test_len=test_window_length,
+        final_end=final_test_end,
+    )
+
+    all_test_indices = []
+    all_regime_hmm = []
+    all_regime_vlstar = []
+
+    for idx, (train_start, train_end, test_start, test_end) in enumerate(windows):
+        print(f"\n--- Rolling Window {idx + 1} ---")
+        print(f"Train: {train_start.date()} to {train_end.date()}")
+        print(f"Test: {test_start.date()} to {test_end.date()}")
+
+        train_df = df[(df.index >= train_start) & (df.index <= train_end)]
+        test_df = df[(df.index >= test_start) & (df.index <= test_end)]
+
+        feature_cols = [
+            f"mr_strength_ar_{period}",
+            f"hurst_{period}",
+            f"var_ratio_{period}",
+        ]
+
+        key_feature = f"mr_strength_ar_{period}"
+
+        train_df_features = train_df[feature_cols].copy()
+        test_df_features = test_df[feature_cols].copy()
+
+        X_train, scaler = scale_fit_transform(train_df_features)
+        X_test = scale_transform(test_df_features, scaler)
+
+        # ----------------- HMM ------------------
+        hmm_model = fit_hmm(
+            X_train,
+            n_components=3,
+            covariance_type="full",
+            n_iter=1000,
+            random_state=42,
+        )
+        hidden_states_train = predict_hmm(hmm_model, X_train)
+        state_to_regime = map_hmm_states_to_regimes(
+            X_train, hidden_states_train, train_df, key_feature=key_feature
+        )
+
+        hidden_states_test = predict_hmm(hmm_model, X_test)
+        regime_labels_test_hmm = [
+            state_to_regime.get(s, "Unknown") for s in hidden_states_test
+        ]
+
+        kmed = fit_vlstar_kmedoids(X_train, n_clusters=3, random_state=42)
+        cluster_to_regime, cluster_labels_train = map_clusters_to_regimes_kmedoids(
+            kmed, train_df, key_feature=key_feature
+        )
+        cluster_labels_test = predict_vlstar_kmedoids(kmed, X_test)
+        regime_labels_test_vlstar = [
+            cluster_to_regime.get(c, "Unknown") for c in cluster_labels_test
+        ]
+
+        test_indices = test_df.index
+
+        all_test_indices.extend(test_indices)
+        all_regime_hmm.extend(regime_labels_test_hmm)
+        all_regime_vlstar.extend(regime_labels_test_vlstar)
+
+    predictions_df = pd.DataFrame(
+        {"regime_hmm": all_regime_hmm, "regime_vlstar": all_regime_vlstar},
+        index=all_test_indices,
+    )
+
+    predictions_df = predictions_df[~predictions_df.index.duplicated(keep="last")]
+
+    df = append_predictions_to_df(
+        df,
+        predictions_df.index,
+        predictions_df["regime_hmm"],
+        predictions_df["regime_vlstar"],
+    )
+
+    df.to_csv(csv_output_path)
+
+    combined_predictions = predictions_df.copy()
+    combined_predictions.sort_index(inplace=True)
+
+    combined_test_df = df.loc[combined_predictions.index]
+
+    visualize_regimes(
+        combined_test_df,
+        combined_predictions["regime_hmm"],
+        title="HMM Mean Reversion Regimes (Test Set)",
+    )
+
+    visualize_regimes(
+        combined_test_df,
+        combined_predictions["regime_vlstar"],
+        title="VLSTAR (KMedoids) Mean Reversion Regimes (Test Set)",
+    )
 
     print("All done.")
 
