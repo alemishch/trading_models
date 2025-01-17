@@ -12,14 +12,14 @@ matplotlib.use("TkAgg")
 
 period = 100
 train_start = "2023-03-01"
-train_end = "2023-03-20"
-test_end = "2023-03-25"
+train_end = "2023-03-10"
+test_end = "2023-03-15"
 train_start = pd.to_datetime(train_start)
 train_end = pd.to_datetime(train_end)
 test_end = pd.to_datetime(test_end)
 
-plot_start_date = "2023-03-21"
-plot_end_date = "2023-03-22"
+plot_start_date = "2023-03-11"
+plot_end_date = "2023-03-12"
 
 
 def load_and_preprocess(csv_path):
@@ -33,7 +33,6 @@ def load_and_preprocess(csv_path):
 
 
 def split_train_test(df):
-
     # Create train and test DataFrames based on the specified date ranges
     train_df = df[(df.index >= train_start) & (df.index <= train_end)]
     test_df = df[(df.index > train_end) & (df.index <= test_end)]
@@ -274,7 +273,8 @@ def visualize_regimes(df, regime_labels, title="Regime Visualization"):
 
 
 def main():
-    csv_path = "/Users/alexanderdemachev/PycharmProjects/strategy/Cryptology/backtests/stat_arb/AAVEUSDT.csv"
+    csv_path = "AAVEUSDT.csv"
+    # csv_output_path = "AAVEUSDT_output.csv"
 
     df = load_and_preprocess(csv_path)
 
@@ -320,6 +320,17 @@ def main():
         regime_labels_test_vlstar,
         title="VLSTAR (KMedoids) Mean Reversion Regimes (Test Set)",
     )
+
+    if "regime_hmm" not in df.columns:
+        df["regime_hmm"] = np.nan
+
+    if "regime_vlstar" not in df.columns:
+        df["regime_vlstar"] = np.nan
+
+    df.loc[test_df.index, "regime_hmm"] = regime_labels_test_hmm
+    df.loc[test_df.index, "regime_vlstar"] = regime_labels_test_vlstar
+
+    df.to_csv(csv_path)
 
     print("All done.")
 
