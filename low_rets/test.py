@@ -193,7 +193,7 @@ def visualize_results(results, methods, alpha=0.05, window=126):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("pvalues_plot.png")
+    plt.savefig(f"pvalues_plot_{alpha}.png")
     plt.show()
 
     rolling_mean = results["returns"].rolling(window=window).mean()
@@ -271,7 +271,7 @@ def visualize_results(results, methods, alpha=0.05, window=126):
         ax.grid(True)
         plt.tight_layout()
 
-        filename = f"{method}_plot.png"
+        filename = f"{method}_plot_{alpha}.png"
         plt.savefig(filename)
         plt.close()
 
@@ -297,11 +297,11 @@ def main():
 
     returns = df["returns"]
     window_size = 126
-    alpha_level = 0.05
+    alpha_level = 0.4
     n_bootstrap = window_size
     block_size = 10
-    prior_mean = 0
-    prior_variance = 1
+    prior_mean = 0.01
+    prior_variance = 10
 
     available_methods = {
         "NeweyWest_pval": rolling_alpha_pvals,
@@ -358,7 +358,7 @@ def main():
     summary = evaluate_results(results, selected_methods, alpha=alpha_level)
     print(summary)
 
-    output_file = "analyzed_returns_comparison.csv"
+    output_file = f"analyzed_returns_comparison_{alpha_level}.csv"
     results.to_csv(output_file)
     print(f"Results saved to '{output_file}'.")
 
