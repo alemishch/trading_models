@@ -168,7 +168,7 @@ def rolling_alpha_pvals_bayesian(
     return pd.Series(pvals, index=idx, name="Bayesian_pval")
 
 
-def visualize_results(results, methods, alpha=0.05):
+def visualize_results(results, methods, alpha=0.05, window=126):
     plt.figure(figsize=(14, 6))
     colors = {
         "NeweyWest_pval": "blue",
@@ -196,6 +196,9 @@ def visualize_results(results, methods, alpha=0.05):
     plt.savefig("pvalues_plot.png")
     plt.show()
 
+    rolling_mean = results["returns"].rolling(window=window).mean()
+    results["rolling_mean"] = rolling_mean
+
     for method in methods:
         if method not in results.columns:
             continue
@@ -205,8 +208,8 @@ def visualize_results(results, methods, alpha=0.05):
 
         ax.plot(
             results.index,
-            results["returns"],
-            label="Actual Returns",
+            results["rolling_mean"],
+            label="Rolling Mean Returns",
             color="black",
             alpha=0.6,
         )
@@ -215,8 +218,18 @@ def visualize_results(results, methods, alpha=0.05):
         predicted_negative = results[method] > alpha
 
         ax.scatter(
+            results.index[predicted_positive],
+            results["rolling_mean"][predicted_positive],
+            label=f"{method} Predicts >0",
+            color=colors.get(method, None),
+            alpha=0.6,
+            marker="o",
+            s=50,
+        )
+
+        ax.scatter(
             results.index[predicted_negative],
-            results["returns"][predicted_negative],
+            results["rolling_mean"][predicted_negative],
             label=f"{method} Predicts <=0",
             color="red",
             alpha=0.6,
@@ -224,18 +237,18 @@ def visualize_results(results, methods, alpha=0.05):
             s=50,
         )
 
-        ax.axhline(y=0, color="gray", linestyle="--", label="Return = 0")
+        ax.axhline(y=0, color="gray", linestyle="--", label="Mean Return = 0")
 
-        TP = ((predicted_positive) & (results["returns"] > 0)).sum()
-        TN = ((predicted_negative) & (results["returns"] <= 0)).sum()
-        FP = ((predicted_positive) & (results["returns"] <= 0)).sum()
-        FN = ((predicted_negative) & (results["returns"] > 0)).sum()
+        TP = ((predicted_positive) & (results["rolling_mean"] > 0)).sum()
+        TN = ((predicted_negative) & (results["rolling_mean"] <= 0)).sum()
+        FP = ((predicted_positive) & (results["rolling_mean"] <= 0)).sum()
+        FN = ((predicted_negative) & (results["rolling_mean"] > 0)).sum()
         Correct = TP + TN
 
         textstr = "\n".join(
             (
-                f"FP (Predicted >0, Actual <=0): {FP}",
-                f"FN (Predicted <=0, Actual >0): {FN}",
+                f"False Positives (FP): {FP}",
+                f"False Negatives (FN): {FN}",
                 f"Correct Predictions: {Correct}",
             )
         )
@@ -251,16 +264,16 @@ def visualize_results(results, methods, alpha=0.05):
             bbox=props,
         )
 
-        ax.set_title(f"Actual Returns with {method} predictions")
+        ax.set_title(f"Rolling Mean Returns with {method} Predictions")
         ax.set_xlabel("Date")
-        ax.set_ylabel("Returns")
+        ax.set_ylabel("Rolling Mean Return")
         ax.legend()
         ax.grid(True)
         plt.tight_layout()
 
         filename = f"{method}_plot.png"
         plt.savefig(filename)
-        plt.show()
+        plt.close()
 
 
 def evaluate_results(df, methods, alpha=0.05):
@@ -340,7 +353,7 @@ def main():
             )
         results = results.join(pvals)
 
-    visualize_results(results, selected_methods, alpha=alpha_level)
+    visualize_results(results, selected_methods, alpha=alpha_level, window=window_size)
 
     summary = evaluate_results(results, selected_methods, alpha=alpha_level)
     print(summary)
