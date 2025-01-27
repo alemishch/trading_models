@@ -10,9 +10,6 @@ from tqdm import tqdm
 
 
 def estimate_ar1_params(series):
-    """
-    Estimate AR(1) coefficients (phi, c) from a 1D array-like.
-    """
     X = np.asarray(series)
     if len(X) < 2:
         return np.nan, np.nan
@@ -28,27 +25,18 @@ def estimate_ar1_params(series):
 
 
 def discrete_mean_reversion_strength(phi):
-    """
-    If phi < 1, returns -log(phi), else 0.0.
-    """
     if phi >= 1 or np.isnan(phi):
         return 0.0
     return -np.log(phi)
 
 
 def estimate_hurst_dfa(y, q=2, order=1, fit_range=(4, 20)):
-    """
-    Minimal version that calls the MFDFA approach if installed,
-    or returns np.nan if it fails.
-    In your code, you have MFDFA installed, so it should work.
-    """
     try:
         from MFDFA import MFDFA
     except ImportError:
         return np.nan
 
     try:
-        # We will replicate the logic from your script
         lag = np.unique((np.logspace(0.7, 2, 30)).astype(int))
         if len(y) < max(lag):
             return np.nan
@@ -157,6 +145,11 @@ def compute_features_for_ticker(ticker, data_dir, periods):
     df["log_returns"] = df["log_returns"].replace([np.inf, -np.inf], np.nan)
 
     for p in periods:
+        df[f"log_returns_{p}"] = np.log(df["close"] / df["close"].shift(p))
+        df[f"log_returns_{p}"] = df[f"log_returns_{p}"].replace(
+            [np.inf, -np.inf], np.nan
+        )
+
         df[f"Hurst_{p}"] = rolling_hurst_dfa(df["close"], p)
         df[f"MR_Strength_{p}"] = rolling_mr_strength_ar(df["close"], p)
 
@@ -172,7 +165,7 @@ def compute_features_for_ticker(ticker, data_dir, periods):
         df[f"MACD_Diff_{p}"] = macd_df["macd_diff"]
 
         # Rolling volatility of log_returns
-        df[f"Volatility_{p}"] = df["log_returns"].rolling(p).std()
+        df[f"Volatility_logreturns_{p}"] = df["log_returns"].rolling(p).std()
 
     return df
 
