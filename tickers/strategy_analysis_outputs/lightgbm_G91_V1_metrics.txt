@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G91_V1
+Mean Squared Error (MSE): 0.000063
+Mean Absolute Error (MAE): 0.006427
+R^2 Score: -0.114002

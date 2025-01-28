@@ -1,0 +1,4 @@
+Linear Regression Performance for G58_V1
+Mean Squared Error (MSE): 0.482512
+Mean Absolute Error (MAE): 0.648264
+R^2 Score: -10373.447992

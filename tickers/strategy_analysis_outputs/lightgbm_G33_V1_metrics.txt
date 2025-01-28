@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G33_V1
+Mean Squared Error (MSE): 0.000042
+Mean Absolute Error (MAE): 0.003942
+R^2 Score: -0.029289

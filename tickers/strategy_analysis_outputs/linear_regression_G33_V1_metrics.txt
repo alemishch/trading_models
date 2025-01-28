@@ -1,0 +1,4 @@
+Linear Regression Performance for G33_V1
+Mean Squared Error (MSE): 0.147033
+Mean Absolute Error (MAE): 0.288964
+R^2 Score: -3578.021930

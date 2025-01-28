@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G85_V1
+Mean Squared Error (MSE): 0.000014
+Mean Absolute Error (MAE): 0.002591
+R^2 Score: -0.195080

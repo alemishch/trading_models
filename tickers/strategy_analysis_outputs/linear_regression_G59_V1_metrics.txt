@@ -1,0 +1,4 @@
+Linear Regression Performance for G59_V1
+Mean Squared Error (MSE): 0.009978
+Mean Absolute Error (MAE): 0.078104
+R^2 Score: -663.142627

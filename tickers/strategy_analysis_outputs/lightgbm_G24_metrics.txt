@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G24
+Mean Squared Error (MSE): 0.000032
+Mean Absolute Error (MAE): 0.004409
+R^2 Score: -0.292427

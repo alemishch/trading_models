@@ -1,0 +1,4 @@
+Linear Regression Performance for G68_V1
+Mean Squared Error (MSE): 0.003032
+Mean Absolute Error (MAE): 0.051295
+R^2 Score: -5.574032

@@ -1,0 +1,4 @@
+Linear Regression Performance for G44
+Mean Squared Error (MSE): 0.426254
+Mean Absolute Error (MAE): 0.519523
+R^2 Score: -1316.353967

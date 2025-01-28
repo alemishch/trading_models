@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G44
+Mean Squared Error (MSE): 0.000332
+Mean Absolute Error (MAE): 0.012031
+R^2 Score: -0.026728

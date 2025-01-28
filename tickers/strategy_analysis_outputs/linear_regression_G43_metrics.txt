@@ -1,0 +1,4 @@
+Linear Regression Performance for G43
+Mean Squared Error (MSE): 2.032979
+Mean Absolute Error (MAE): 1.193661
+R^2 Score: -1880.815260

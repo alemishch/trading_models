@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G70_V1
+Mean Squared Error (MSE): 0.000043
+Mean Absolute Error (MAE): 0.003880
+R^2 Score: -0.969235

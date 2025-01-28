@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G69_V2
+Mean Squared Error (MSE): 0.000011
+Mean Absolute Error (MAE): 0.002890
+R^2 Score: -14.920207

@@ -1,0 +1,4 @@
+Linear Regression Performance for G24
+Mean Squared Error (MSE): 0.007102
+Mean Absolute Error (MAE): 0.075112
+R^2 Score: -286.416314

@@ -1,0 +1,4 @@
+LightGBM Regression Performance for G68_V1
+Mean Squared Error (MSE): 0.000495
+Mean Absolute Error (MAE): 0.012160
+R^2 Score: -0.073345

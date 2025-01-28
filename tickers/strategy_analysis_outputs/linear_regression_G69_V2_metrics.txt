@@ -1,0 +1,4 @@
+Linear Regression Performance for G69_V2
+Mean Squared Error (MSE): 0.005296
+Mean Absolute Error (MAE): 0.067068
+R^2 Score: -7729.645606
