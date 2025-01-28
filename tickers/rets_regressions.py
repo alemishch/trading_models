@@ -9,7 +9,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler
-
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+)
 import lightgbm as lgb
 
 # Suppress warnings for cleaner output
@@ -24,7 +31,7 @@ def load_feature_data(feature_path):
         [
             col
             for col in df_features.columns
-            if col.startswith("pca") or col.startswith("umap") or col == "datetime"
+            if col.startswith("pca") or col == "datetime"
         ]
     ]
 
@@ -82,6 +89,123 @@ def perform_linear_regression(df, strategy, feature_cols, output_dir):
         f.write(f"R^2 Score: {r2:.6f}\n")
 
     return lr, scaler, mse, mae, r2
+
+
+def perform_random_forest_regression(df, strategy, feature_cols, output_dir):
+    """
+    Perform Random Forest regression to predict strategy returns based on features.
+    Split data into train and test sets, train the model, evaluate performance.
+    Save the evaluation metrics and feature importances to files.
+    """
+
+    X = df[feature_cols].values
+    y = df[strategy].values
+
+    # Split data: 80% train, 20% test
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, shuffle=False
+    )
+
+    # Initialize the model with hyperparameters
+    rf_reg = RandomForestRegressor(
+        n_estimators=100,
+        max_depth=None,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        random_state=42,
+        n_jobs=-1,
+    )
+
+    # Train the model
+    rf_reg.fit(X_train, y_train)
+
+    # Predict
+    y_pred = rf_reg.predict(X_test)
+
+    # Evaluate
+    mse = mean_squared_error(y_test, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    print(f"Random Forest Regression Performance:")
+    print(f"  Mean Squared Error (MSE): {mse:.6f}")
+    print(f"  Mean Absolute Error (MAE): {mae:.6f}")
+    print(f"  R^2 Score: {r2:.6f}")
+
+    # Save Random Forest Regression Metrics
+    metrics_path = os.path.join(
+        output_dir, f"random_forest_regression_{strategy}_metrics.txt"
+    )
+    with open(metrics_path, "w") as f:
+        f.write(f"Random Forest Regression Performance for {strategy}\n")
+        f.write(f"Mean Squared Error (MSE): {mse:.6f}\n")
+        f.write(f"Mean Absolute Error (MAE): {mae:.6f}\n")
+        f.write(f"R^2 Score: {r2:.6f}\n")
+
+    return rf_reg, mse, mae, r2
+
+
+def perform_random_forest_classifier(df, strategy, feature_cols, output_dir):
+    """
+    Perform Random Forest classification to predict if strategy returns are >0 or <=0.
+    Split data into train and test sets, train the model, evaluate performance.
+    Save the evaluation metrics and feature importances to files.
+    """
+    print(f"\nPerforming Random Forest Classification for strategy: {strategy}")
+
+    X = df[feature_cols].values
+    y = (df[strategy].values > 0).astype(int)  # Binary target
+
+    # Split data: 80% train, 20% test
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, shuffle=False
+    )
+
+    # Initialize the model with hyperparameters
+    rf_clf = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=None,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        random_state=42,
+        n_jobs=-1,
+    )
+
+    # Train the model
+    rf_clf.fit(X_train, y_train)
+
+    # Predict
+    y_pred = rf_clf.predict(X_test)
+    y_proba = rf_clf.predict_proba(X_test)[:, 1]
+
+    # Evaluate
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    auc = roc_auc_score(y_test, y_proba)
+
+    print(f"Random Forest Classification Performance:")
+    print(f"  Accuracy: {accuracy:.6f}")
+    print(f"  Precision: {precision:.6f}")
+    print(f"  Recall: {recall:.6f}")
+    print(f"  F1 Score: {f1:.6f}")
+    print(f"  ROC AUC Score: {auc:.6f}")
+
+    # Save Random Forest Classification Metrics
+    metrics_path = os.path.join(
+        output_dir, f"random_forest_classification_{strategy}_metrics.txt"
+    )
+    with open(metrics_path, "w") as f:
+        f.write(f"Random Forest Classification Performance for {strategy}\n")
+        f.write(f"Accuracy: {accuracy:.6f}\n")
+        f.write(f"Precision: {precision:.6f}\n")
+        f.write(f"Recall: {recall:.6f}\n")
+        f.write(f"F1 Score: {f1:.6f}\n")
+        f.write(f"ROC AUC Score: {auc:.6f}\n")
+    print(f"Random Forest classification metrics saved to '{metrics_path}'.")
+
+    return rf_clf, accuracy, precision, recall, f1, auc
 
 
 def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
@@ -160,15 +284,27 @@ def main():
 
     strategy_cols = [col for col in df_rets.columns if col != "datetime"]
 
-    feature_cols = [col for col in df_features.columns if col != "datetime"]
+    base_feature_cols = [col for col in df_features.columns if col != "datetime"]
 
     for strategy in tqdm(strategy_cols, desc="Analyzing Strategies"):
         print(f"\n===== Strategy: {strategy} =====")
 
         df_strategy_rets = df_rets[["datetime", strategy]].copy()
 
+        df_strategy_rets.sort_values("datetime", inplace=True)
+        if strategy not in ["test"]:
+            df_strategy_rets[f"{strategy}_lag_1"] = df_strategy_rets[strategy].shift(1)
+
+            df_strategy_rets[f"{strategy}_avg_5"] = (
+                df_strategy_rets[strategy].shift(1).rolling(window=5).mean()
+            )
+
+            engineered_features = [f"{strategy}_lag_1", f"{strategy}_avg_5"]
+            feature_cols = base_feature_cols + engineered_features
+
         df_merged = pd.merge(df_strategy_rets, df_features, on="datetime", how="inner")
         df_merged.dropna(inplace=True)
+        print(df_merged.columns.tolist())
         if df_merged.empty:
             print(f"No data dropping NaNs for {strategy}")
             continue
@@ -192,6 +328,26 @@ def main():
             lgbm_r2,
             feature_importances,
         ) = perform_lightgbm_regression(df_merged, strategy, feature_cols, output_dir)
+
+        (
+            rf_reg_model,
+            rf_reg_mse,
+            rf_reg_mae,
+            rf_reg_r2,
+        ) = perform_random_forest_regression(
+            df_merged, strategy, feature_cols, output_dir
+        )
+
+        (
+            rf_clf_model,
+            rf_clf_accuracy,
+            rf_clf_precision,
+            rf_clf_recall,
+            rf_clf_f1,
+            rf_clf_auc,
+        ) = perform_random_forest_classifier(
+            df_merged, strategy, feature_cols, output_dir
+        )
 
 
 if __name__ == "__main__":
