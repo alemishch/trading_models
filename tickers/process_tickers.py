@@ -123,11 +123,9 @@ def compute_features_for_ticker(ticker, data_dir, periods):
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df.dropna(subset=["close"], inplace=True)
-
+    df[f"log_returns"] = np.log(df["close"] / df["close"].shift(1))
+    df[f"log_returns"].replace([np.inf, -np.inf], np.nan, inplace=True)
     for p in periods:
-        df[f"log_returns_{p}"] = np.log(df["close"] / df["close"].shift(p))
-        df[f"log_returns_{p}"].replace([np.inf, -np.inf], np.nan, inplace=True)
-
         df[f"Hurst_{p}"] = rolling_hurst_dfa(df["close"], p)
         df[f"MR_Strength_{p}"] = rolling_mr_strength_ar(df["close"], p)
         df[f"RSI_{p}"] = calculate_rsi(df, p)
@@ -138,7 +136,7 @@ def compute_features_for_ticker(ticker, data_dir, periods):
         df[f"MACD_Signal_{p}"] = macd_df["macd_signal"]
         df[f"MACD_Diff_{p}"] = macd_df["macd_diff"]
 
-        df[f"Volatility_{p}"] = df[f"log_returns_{p}"].rolling(p).std()
+        df[f"Volatility_{p}"] = df[f"log_returns"].rolling(p).std()
 
     df.reset_index(inplace=True)
     return df
