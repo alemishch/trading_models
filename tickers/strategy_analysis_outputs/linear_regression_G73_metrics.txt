@@ -1,4 +1,4 @@
 Linear Regression Performance for G73
-Mean Squared Error (MSE): 0.003724
-Mean Absolute Error (MAE): 0.050828
-R^2 Score: -39.175414
+Mean Squared Error (MSE): 0.000110
+Mean Absolute Error (MAE): 0.008725
+R^2 Score: -0.189825

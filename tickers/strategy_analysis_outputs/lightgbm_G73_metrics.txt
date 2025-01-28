@@ -1,4 +1,4 @@
 LightGBM Regression Performance for G73
-Mean Squared Error (MSE): 0.000101
-Mean Absolute Error (MAE): 0.008337
-R^2 Score: -0.093177
+Mean Squared Error (MSE): 0.000109
+Mean Absolute Error (MAE): 0.008508
+R^2 Score: -0.178414

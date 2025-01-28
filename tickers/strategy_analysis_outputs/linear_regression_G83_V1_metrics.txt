@@ -1,4 +1,4 @@
 Linear Regression Performance for G83_V1
-Mean Squared Error (MSE): 0.189162
-Mean Absolute Error (MAE): 0.374379
-R^2 Score: -57606.435900
+Mean Squared Error (MSE): 0.000008
+Mean Absolute Error (MAE): 0.001965
+R^2 Score: -1.487394

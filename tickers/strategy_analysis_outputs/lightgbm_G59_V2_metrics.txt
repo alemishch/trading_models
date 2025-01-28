@@ -1,4 +1,4 @@
 LightGBM Regression Performance for G59_V2
-Mean Squared Error (MSE): 0.000028
-Mean Absolute Error (MAE): 0.002515
-R^2 Score: -0.064366
+Mean Squared Error (MSE): 0.000029
+Mean Absolute Error (MAE): 0.002474
+R^2 Score: -0.079325

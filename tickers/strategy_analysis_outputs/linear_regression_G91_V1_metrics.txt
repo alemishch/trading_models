@@ -1,4 +1,4 @@
 Linear Regression Performance for G91_V1
-Mean Squared Error (MSE): 0.000470
-Mean Absolute Error (MAE): 0.016089
-R^2 Score: -7.330593
+Mean Squared Error (MSE): 0.000065
+Mean Absolute Error (MAE): 0.006807
+R^2 Score: -0.156623

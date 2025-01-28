@@ -1,4 +1,4 @@
 LightGBM Regression Performance for G19_V5
-Mean Squared Error (MSE): 0.000319
-Mean Absolute Error (MAE): 0.013204
-R^2 Score: -0.169687
+Mean Squared Error (MSE): 0.000406
+Mean Absolute Error (MAE): 0.015143
+R^2 Score: -0.486796

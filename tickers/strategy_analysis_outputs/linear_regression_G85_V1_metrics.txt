@@ -1,4 +1,4 @@
 Linear Regression Performance for G85_V1
-Mean Squared Error (MSE): 0.000033
-Mean Absolute Error (MAE): 0.004402
-R^2 Score: -1.755773
+Mean Squared Error (MSE): 0.000071
+Mean Absolute Error (MAE): 0.006646
+R^2 Score: -4.881337

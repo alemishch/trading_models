@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
-
+from MFDFA import MFDFA
 from sklearn.decomposition import PCA
 
 import umap.umap_ as umap
@@ -31,11 +31,6 @@ def discrete_mean_reversion_strength(phi):
 
 
 def estimate_hurst_dfa(y, q=2, order=1, fit_range=(4, 20)):
-    try:
-        from MFDFA import MFDFA
-    except ImportError:
-        return np.nan
-
     try:
         lag = np.unique((np.logspace(0.7, 2, 30)).astype(int))
         if len(y) < max(lag):
@@ -100,9 +95,6 @@ def rolling_hurst_dfa(series, window):
 
 
 def rolling_mr_strength_ar(series, window):
-    """
-    For each index >= window, estimate AR(1) and get discrete_mean_reversion_strength from phi.
-    """
     mr_vals = []
     for i in range(len(series)):
         if i < window:
@@ -118,77 +110,73 @@ def rolling_mr_strength_ar(series, window):
 def compute_features_for_ticker(ticker, data_dir, periods):
     csv_path = os.path.join(data_dir, f"{ticker}.csv")
     if not os.path.isfile(csv_path):
-        print(f"CSV for {ticker} not found at {csv_path}. Skipping.")
-        return None
+        print(f"CSV for {ticker} not found. Skipping.")
+        return pd.DataFrame()
 
-    try:
-        df = pd.read_csv(
-            csv_path,
-            parse_dates=[0],
-            skiprows=[1],
-        )
-    except Exception as e:
-        print(f"Error reading {ticker}: {e}")
-        return None
-
+    df = pd.read_csv(csv_path, parse_dates=[0], skiprows=[1])
     df.rename(columns={df.columns[0]: "datetime", "Close": "close"}, inplace=True)
-    df.set_index("datetime", inplace=True, drop=True)
+    df.set_index("datetime", drop=True, inplace=True)
     df.sort_index(inplace=True)
 
-    numeric_cols = ["close", "volume"]
-    for col in numeric_cols:
+    for col in ["close", "volume"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    df.dropna(subset=["close"], inplace=True)
 
-    df["log_returns"] = np.log(df["close"] / df["close"].shift(1))
-    df["log_returns"] = df["log_returns"].replace([np.inf, -np.inf], np.nan)
+    df.dropna(subset=["close"], inplace=True)
 
     for p in periods:
         df[f"log_returns_{p}"] = np.log(df["close"] / df["close"].shift(p))
-        df[f"log_returns_{p}"] = df[f"log_returns_{p}"].replace(
-            [np.inf, -np.inf], np.nan
-        )
+        df[f"log_returns_{p}"].replace([np.inf, -np.inf], np.nan, inplace=True)
 
         df[f"Hurst_{p}"] = rolling_hurst_dfa(df["close"], p)
         df[f"MR_Strength_{p}"] = rolling_mr_strength_ar(df["close"], p)
+        df[f"RSI_{p}"] = calculate_rsi(df, p)
+        df[f"Momentum_{p}"] = calculate_momentum(df, p)
 
-        df[f"RSI_{p}"] = calculate_rsi(df, window=p)
-
-        df[f"Momentum_{p}"] = calculate_momentum(df, window=p)
-
-        macd_df = calculate_macd(
-            df, window_slow=p, window_fast=max(1, p // 2), window_sign=9
-        )
+        macd_df = calculate_macd(df, window_slow=p, window_fast=max(1, p // 2))
         df[f"MACD_{p}"] = macd_df["macd"]
         df[f"MACD_Signal_{p}"] = macd_df["macd_signal"]
         df[f"MACD_Diff_{p}"] = macd_df["macd_diff"]
 
-        # Rolling volatility of log_returns
-        df[f"Volatility_logreturns_{p}"] = df["log_returns"].rolling(p).std()
+        df[f"Volatility_{p}"] = df[f"log_returns_{p}"].rolling(p).std()
 
+    df.reset_index(inplace=True)
     return df
 
 
-def add_pca_features(df, n_components=2, prefix="pca"):
+def rename_columns_for_ticker(df, ticker, periods):
+    new_cols = {}
+    for col in df.columns:
+        if col != "datetime":
+            new_cols[col] = f"{ticker}_{col}"
+    return df.rename(columns=new_cols)
+
+
+def add_pca_features(df, n_components=10, prefix="pca"):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     numeric_cols = [col for col in numeric_cols]
 
-    data_to_reduce = df[numeric_cols].fillna(0)
-
+    data_to_reduce = df[numeric_cols].dropna(axis=1, how="all")
+    data_to_reduce = data_to_reduce.dropna()
+    print(data_to_reduce.head())
     if data_to_reduce.empty:
         print("no valid numeric data")
-        for i in range(n_components):
+        for i in range(10):
             df[f"{prefix}_{i+1}"] = np.nan
         return df
+
+    pca = PCA()
+    pca.fit(data_to_reduce)
 
     pca = PCA(n_components=n_components)
     transformed = pca.fit_transform(data_to_reduce)
 
-    for i in range(n_components):
-        df.loc[data_to_reduce.index, f"{prefix}_{i+1}"] = transformed[:, i]
+    pca_columns = [f"{prefix}_{i+1}" for i in range(n_components)]
 
-    return df
+    pca_df = pd.DataFrame(transformed, index=data_to_reduce.index, columns=pca_columns)
+
+    df = df.join(pca_df, how="left")
+    return df, n_components
 
 
 def add_umap_features(df, n_components=2, prefix="umap"):
@@ -196,7 +184,8 @@ def add_umap_features(df, n_components=2, prefix="umap"):
 
     numeric_cols = [col for col in numeric_cols]
 
-    data_to_reduce = df[numeric_cols].fillna(0)
+    data_to_reduce = df[numeric_cols].dropna(axis=1, how="all")
+    data_to_reduce = data_to_reduce.dropna()
 
     if data_to_reduce.empty:
         print("no valid numeric data for UMAP")
@@ -227,25 +216,43 @@ def main():
 
     periods = [13, 34, 55]
 
+    wide_df = None
     for ticker in tqdm(tickers, desc="Processing Tickers"):
         df = compute_features_for_ticker(ticker, data_dir, periods)
-        if df is None or df.empty:
+        if df.empty:
             continue
 
-        df_pca = df.copy()
-        df_pca = add_pca_features(df_pca, n_components=7, prefix="pca")
+        # rename columns => {ticker}_{feature}
+        df_renamed = rename_columns_for_ticker(df, ticker, periods)
 
-        df_umap = df.copy()
-        df_umap = add_umap_features(df_umap, n_components=7, prefix="umap")
+        if wide_df is None:
+            wide_df = df_renamed
+        else:
+            wide_df = pd.merge(wide_df, df_renamed, on="datetime", how="outer")
 
-        pca_out_path = os.path.join(output_dir, f"{ticker}_features_pca.csv")
-        df_pca.to_csv(pca_out_path, index=True)
-        umap_out_path = os.path.join(output_dir, f"{ticker}_features_umap.csv")
-        df_umap.to_csv(umap_out_path, index=True)
+    if wide_df is None or wide_df.empty:
+        print("No data for any ticker. Exiting.")
+        return
 
-        print(f"Saved {pca_out_path} and {umap_out_path}")
+    wide_df.sort_values("datetime", inplace=True)
+    wide_df.reset_index(drop=True, inplace=True)
 
-    print("\nAll tickers processed successfully.")
+    df_pca, n_components = add_pca_features(
+        wide_df.copy(), n_components=10, prefix="pca"
+    )
+
+    df_umap = add_umap_features(
+        wide_df.copy(), n_components=n_components, prefix="umap"
+    )
+
+    pca_out = os.path.join(output_dir, "combined_features_pca.csv")
+    umap_out = os.path.join(output_dir, "combined_features_umap.csv")
+
+    df_pca.to_csv(pca_out, index=False)
+    df_umap.to_csv(umap_out, index=False)
+
+    print(f"\nAll done. Wide CSV with PCA => {pca_out}")
+    print(f"Wide CSV with UMAP => {umap_out}")
 
 
 if __name__ == "__main__":

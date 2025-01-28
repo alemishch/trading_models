@@ -1,4 +1,4 @@
 Linear Regression Performance for G19_V5
-Mean Squared Error (MSE): 4.306360
-Mean Absolute Error (MAE): 1.802801
-R^2 Score: -15775.703569
+Mean Squared Error (MSE): 0.000594
+Mean Absolute Error (MAE): 0.016631
+R^2 Score: -1.177041

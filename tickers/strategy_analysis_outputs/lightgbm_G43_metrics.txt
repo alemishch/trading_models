@@ -1,4 +1,4 @@
 LightGBM Regression Performance for G43
-Mean Squared Error (MSE): 0.001101
-Mean Absolute Error (MAE): 0.022099
-R^2 Score: -0.019215
+Mean Squared Error (MSE): 0.001087
+Mean Absolute Error (MAE): 0.022876
+R^2 Score: -0.006145

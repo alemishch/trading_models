@@ -20,6 +20,13 @@ warnings.filterwarnings("ignore")
 
 def load_feature_data(feature_path):
     df_features = pd.read_csv(feature_path, parse_dates=["datetime"])
+    df_features = df_features[
+        [
+            col
+            for col in df_features.columns
+            if col.startswith("pca") or col.startswith("umap") or col == "datetime"
+        ]
+    ]
 
     df_features.dropna(axis=1, how="all", inplace=True)
 

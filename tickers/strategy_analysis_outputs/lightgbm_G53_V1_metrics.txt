@@ -1,4 +1,4 @@
 LightGBM Regression Performance for G53_V1
-Mean Squared Error (MSE): 0.000110
-Mean Absolute Error (MAE): 0.008111
-R^2 Score: -0.182787
+Mean Squared Error (MSE): 0.000099
+Mean Absolute Error (MAE): 0.007442
+R^2 Score: -0.071384

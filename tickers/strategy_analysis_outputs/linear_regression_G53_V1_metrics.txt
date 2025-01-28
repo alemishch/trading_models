@@ -1,4 +1,4 @@
 Linear Regression Performance for G53_V1
-Mean Squared Error (MSE): 20.379577
-Mean Absolute Error (MAE): 4.156020
-R^2 Score: -219617.635731
+Mean Squared Error (MSE): 0.000108
+Mean Absolute Error (MAE): 0.007317
+R^2 Score: -0.159237
