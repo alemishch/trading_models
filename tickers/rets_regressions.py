@@ -216,7 +216,7 @@ def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
         X, y, test_size=0.2, shuffle=False
     )
 
-    lgbm = lgb.LGBMRegressor(random_state=42)
+    lgbm = lgb.LGBMRegressor(random_state=42, verbose=-1)
 
     lgbm.fit(X_train, y_train)
 
@@ -267,6 +267,51 @@ def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
     return lgbm, mse, mae, r2, feature_importances_sorted
 
 
+def perform_lightgbm_classification(df, strategy, feature_cols, output_dir):
+    X = df[feature_cols].values
+    y = (df[strategy].values > 0).astype(int)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, shuffle=False
+    )
+
+    lgbm_clf = lgb.LGBMClassifier(
+        n_estimators=100, learning_rate=0.05, max_depth=-1, random_state=42, verbose=-1
+    )
+
+    lgbm_clf.fit(X_train, y_train)
+
+    y_pred = lgbm_clf.predict(X_test)
+    y_proba = lgbm_clf.predict_proba(X_test)[:, 1]
+
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    auc = roc_auc_score(y_test, y_proba)
+
+    print(f"LightGBM Classification Performance:")
+    print(f"  Accuracy: {accuracy:.6f}")
+    print(f"  Precision: {precision:.6f}")
+    print(f"  Recall: {recall:.6f}")
+    print(f"  F1 Score: {f1:.6f}")
+    print(f"  ROC AUC Score: {auc:.6f}")
+
+    # Save LightGBM Classification Metrics
+    metrics_path = os.path.join(
+        output_dir, f"lightgbm_classification_{strategy}_metrics.txt"
+    )
+    with open(metrics_path, "w") as f:
+        f.write(f"LightGBM Classification Performance for {strategy}\n")
+        f.write(f"Accuracy: {accuracy:.6f}\n")
+        f.write(f"Precision: {precision:.6f}\n")
+        f.write(f"Recall: {recall:.6f}\n")
+        f.write(f"F1 Score: {f1:.6f}\n")
+        f.write(f"ROC AUC Score: {auc:.6f}\n")
+
+    return lgbm_clf, accuracy, precision, recall, f1, auc
+
+
 def compute_correlations(df, strategy, feature_cols):
     correlations = df[feature_cols].corrwith(df[strategy]).dropna()
     correlations_sorted = correlations.abs().sort_values(ascending=False)
@@ -290,21 +335,26 @@ def main():
         print(f"\n===== Strategy: {strategy} =====")
 
         df_strategy_rets = df_rets[["datetime", strategy]].copy()
-
+        df_strategy_rets.dropna(inplace=True)
         df_strategy_rets.sort_values("datetime", inplace=True)
-        if strategy not in ["test"]:
-            df_strategy_rets[f"{strategy}_lag_1"] = df_strategy_rets[strategy].shift(1)
+        initial_count = len(df_strategy_rets)
 
-            df_strategy_rets[f"{strategy}_avg_5"] = (
-                df_strategy_rets[strategy].shift(1).rolling(window=5).mean()
-            )
+        df_strategy_rets[f"{strategy}_lag_1"] = df_strategy_rets[strategy].shift(1)
 
-            engineered_features = [f"{strategy}_lag_1", f"{strategy}_avg_5"]
-            feature_cols = base_feature_cols + engineered_features
+        df_strategy_rets[f"{strategy}_avg_5"] = (
+            df_strategy_rets[strategy].shift(1).rolling(window=5).mean()
+        )
+
+        engineered_features = [f"{strategy}_lag_1", f"{strategy}_avg_5"]
+        feature_cols = base_feature_cols + engineered_features
 
         df_merged = pd.merge(df_strategy_rets, df_features, on="datetime", how="inner")
         df_merged.dropna(inplace=True)
-        print(df_merged.columns.tolist())
+
+        final_count = len(df_merged)
+        dropped_percentage = ((initial_count - final_count) / initial_count) * 100
+        print(f"Dropped {dropped_percentage:.2f}% for {strategy}")
+
         if df_merged.empty:
             print(f"No data dropping NaNs for {strategy}")
             continue
@@ -328,6 +378,17 @@ def main():
             lgbm_r2,
             feature_importances,
         ) = perform_lightgbm_regression(df_merged, strategy, feature_cols, output_dir)
+
+        (
+            lgbm_clf_model,
+            lgbm_clf_accuracy,
+            lgbm_clf_precision,
+            lgbm_clf_recall,
+            lgbm_clf_f1,
+            lgbm_clf_auc,
+        ) = perform_lightgbm_classification(
+            df_merged, strategy, feature_cols, output_dir
+        )
 
         (
             rf_reg_model,
