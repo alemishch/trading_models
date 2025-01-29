@@ -31,7 +31,7 @@ def load_feature_data(feature_path):
         [
             col
             for col in df_features.columns
-            if col.startswith("pca") or col == "datetime"
+            if not col.startswith("umap") or col == "datetime"
         ]
     ]
 
@@ -63,6 +63,9 @@ def perform_linear_regression(df, strategy, feature_cols, output_dir):
         X, y, test_size=0.2, shuffle=False
     )
 
+    train_size = len(y_train)
+    test_size = len(y_test)
+
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
@@ -88,6 +91,8 @@ def perform_linear_regression(df, strategy, feature_cols, output_dir):
     metrics_path = os.path.join(output_dir, f"linear_regression_{strategy}_metrics.txt")
     with open(metrics_path, "w") as f:
         f.write(f"Linear Regression Performance for {strategy}\n")
+        f.write(f"Train Size: {train_size}\n")
+        f.write(f"Test Size: {test_size}\n")
         f.write(f"Mean Squared Error (MSE): {mse:.6f}\n")
         f.write(f"Mean Absolute Error (MAE): {mae:.6f}\n")
         f.write(f"R^2 Score: {r2:.6f}\n")
@@ -109,6 +114,9 @@ def perform_random_forest_regression(df, strategy, feature_cols, output_dir):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, shuffle=False
     )
+
+    train_size = len(y_train)
+    test_size = len(y_test)
 
     # Initialize the model with hyperparameters
     rf_reg = RandomForestRegressor(
@@ -146,6 +154,8 @@ def perform_random_forest_regression(df, strategy, feature_cols, output_dir):
     )
     with open(metrics_path, "w") as f:
         f.write(f"Random Forest Regression Performance for {strategy}\n")
+        f.write(f"Train Size: {train_size}\n")
+        f.write(f"Test Size: {test_size}\n")
         f.write(f"Mean Squared Error (MSE): {mse:.6f}\n")
         f.write(f"Mean Absolute Error (MAE): {mae:.6f}\n")
         f.write(f"R^2 Score: {r2:.6f}\n")
@@ -168,6 +178,9 @@ def perform_random_forest_classifier(df, strategy, feature_cols, output_dir):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, shuffle=False
     )
+
+    train_size = len(y_train)
+    test_size = len(y_test)
 
     # Initialize the model with hyperparameters
     rf_clf = RandomForestClassifier(
@@ -210,6 +223,8 @@ def perform_random_forest_classifier(df, strategy, feature_cols, output_dir):
     )
     with open(metrics_path, "w") as f:
         f.write(f"Random Forest Classification Performance for {strategy}\n")
+        f.write(f"Train Size: {train_size}\n")
+        f.write(f"Test Size: {test_size}\n")
         f.write(f"Accuracy: {accuracy:.6f}\n")
         f.write(f"Precision: {precision:.6f}\n")
         f.write(f"Recall: {recall:.6f}\n")
@@ -227,6 +242,9 @@ def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, shuffle=False
     )
+
+    train_size = len(y_train)
+    test_size = len(y_test)
 
     lgbm = lgb.LGBMRegressor(
         n_estimators=500,
@@ -285,6 +303,8 @@ def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
     metrics_path = os.path.join(output_dir, f"lightgbm_{strategy}_metrics.txt")
     with open(metrics_path, "w") as f:
         f.write(f"LightGBM Regression Performance for {strategy}\n")
+        f.write(f"Train Size: {train_size}\n")
+        f.write(f"Test Size: {test_size}\n")
         f.write(f"Mean Squared Error (MSE): {mse:.6f}\n")
         f.write(f"Mean Absolute Error (MAE): {mae:.6f}\n")
         f.write(f"R^2 Score: {r2:.6f}\n")
@@ -300,6 +320,9 @@ def perform_lightgbm_classification(df, strategy, feature_cols, output_dir):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, shuffle=False
     )
+
+    train_size = len(y_train)
+    test_size = len(y_test)
 
     lgbm_clf = lgb.LGBMClassifier(
         n_estimators=500,
@@ -342,6 +365,8 @@ def perform_lightgbm_classification(df, strategy, feature_cols, output_dir):
     )
     with open(metrics_path, "w") as f:
         f.write(f"LightGBM Classification Performance for {strategy}\n")
+        f.write(f"Train Size: {train_size}\n")
+        f.write(f"Test Size: {test_size}\n")
         f.write(f"Accuracy: {accuracy:.6f}\n")
         f.write(f"Precision: {precision:.6f}\n")
         f.write(f"Recall: {recall:.6f}\n")
@@ -358,7 +383,7 @@ def compute_correlations(df, strategy, feature_cols):
 
 
 def main():
-    feature_dataset_path = "feature_datasets/combined_features_pca.csv"
+    feature_dataset_path = "feature_datasets/combined_features_umap.csv"
     returns_path = "rets.csv"
     output_dir = "strategy_analysis_outputs"
     os.makedirs(output_dir, exist_ok=True)
