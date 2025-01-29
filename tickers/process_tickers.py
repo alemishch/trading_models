@@ -27,7 +27,7 @@ def estimate_ar1_params(series):
 def discrete_mean_reversion_strength(phi):
     if phi >= 1 or np.isnan(phi):
         return 0.0
-    return -np.log(phi)
+    return -np.log(np.abs(phi))
 
 
 def estimate_hurst_dfa(y, q=2, order=1, fit_range=(4, 20)):
@@ -49,6 +49,16 @@ def estimate_hurst_dfa(y, q=2, order=1, fit_range=(4, 20)):
 
 import ta
 from scipy.stats import linregress
+
+
+def calculate_parkinson_volatility(df, window=30, trading_days=365):
+    log_hl = np.log(df["high"] / df["low"])
+    parkinson_variance = (1 / (4 * math.log(2))) * (log_hl**2)
+    rolling_parkinson_var = parkinson_variance.rolling(window).sum() / window
+    parkinson_volatility = np.sqrt(np.maximum(rolling_parkinson_var, 0)) * np.sqrt(
+        trading_days
+    )
+    return parkinson_volatility
 
 
 def calculate_rsi(df, window=14):
@@ -114,6 +124,7 @@ def compute_features_for_ticker(ticker, data_dir, periods):
         return pd.DataFrame()
 
     df = pd.read_csv(csv_path, parse_dates=[0], skiprows=[1])
+    df.dropna()
     df.rename(columns={df.columns[0]: "datetime", "Close": "close"}, inplace=True)
     df.set_index("datetime", drop=True, inplace=True)
     df.sort_index(inplace=True)
@@ -130,7 +141,7 @@ def compute_features_for_ticker(ticker, data_dir, periods):
         df[f"MR_Strength_{p}"] = rolling_mr_strength_ar(df["close"], p)
         df[f"RSI_{p}"] = calculate_rsi(df, p)
         df[f"Momentum_{p}"] = calculate_momentum(df, p)
-
+        # df[f"Parkinson_{p}"] = calculate_parkinson_volatility(df, p)
         macd_df = calculate_macd(df, window_slow=p, window_fast=max(1, p // 2))
         df[f"MACD_{p}"] = macd_df["macd"]
         df[f"MACD_Signal_{p}"] = macd_df["macd_signal"]
