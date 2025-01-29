@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
@@ -67,8 +67,12 @@ def perform_linear_regression(df, strategy, feature_cols, output_dir):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    lr = LinearRegression()
+    lr = Ridge(alpha=7.0)
     lr.fit(X_train_scaled, y_train)
+
+    y_train_pred = lr.predict(X_train_scaled)
+    r2_train = r2_score(y_train, y_train_pred)
+    print("TRAIN R2: ", r2_train)
 
     y_pred = lr.predict(X_test_scaled)
 
@@ -77,8 +81,8 @@ def perform_linear_regression(df, strategy, feature_cols, output_dir):
     r2 = r2_score(y_test, y_pred)
 
     print(f"Linear Regression Performance:")
-    print(f"  Mean Squared Error (MSE): {mse:.6f}")
-    print(f"  Mean Absolute Error (MAE): {mae:.6f}")
+    # print(f"  Mean Squared Error (MSE): {mse:.6f}")
+    # print(f"  Mean Absolute Error (MAE): {mae:.6f}")
     print(f"  R^2 Score: {r2:.6f}")
 
     metrics_path = os.path.join(output_dir, f"linear_regression_{strategy}_metrics.txt")
@@ -109,9 +113,9 @@ def perform_random_forest_regression(df, strategy, feature_cols, output_dir):
     # Initialize the model with hyperparameters
     rf_reg = RandomForestRegressor(
         n_estimators=100,
-        max_depth=None,
-        min_samples_split=2,
-        min_samples_leaf=1,
+        max_depth=7,
+        min_samples_split=10,
+        min_samples_leaf=5,
         random_state=42,
         n_jobs=-1,
     )
@@ -122,14 +126,18 @@ def perform_random_forest_regression(df, strategy, feature_cols, output_dir):
     # Predict
     y_pred = rf_reg.predict(X_test)
 
+    y_train_pred = rf_reg.predict(X_train)
+    r2_train = r2_score(y_train, y_train_pred)
+    print("TRAIN R2: ", r2_train)
+
     # Evaluate
     mse = mean_squared_error(y_test, y_pred)
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
     print(f"Random Forest Regression Performance:")
-    print(f"  Mean Squared Error (MSE): {mse:.6f}")
-    print(f"  Mean Absolute Error (MAE): {mae:.6f}")
+    # print(f"  Mean Squared Error (MSE): {mse:.6f}")
+    # print(f"  Mean Absolute Error (MAE): {mae:.6f}")
     print(f"  R^2 Score: {r2:.6f}")
 
     # Save Random Forest Regression Metrics
@@ -163,20 +171,24 @@ def perform_random_forest_classifier(df, strategy, feature_cols, output_dir):
 
     # Initialize the model with hyperparameters
     rf_clf = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=None,
-        min_samples_split=2,
-        min_samples_leaf=1,
+        n_estimators=500,
+        max_depth=1,
+        min_samples_split=10,
+        min_samples_leaf=5,
         random_state=42,
         n_jobs=-1,
+        class_weight="balanced",
     )
-
     # Train the model
     rf_clf.fit(X_train, y_train)
 
     # Predict
     y_pred = rf_clf.predict(X_test)
     y_proba = rf_clf.predict_proba(X_test)[:, 1]
+
+    y_train_pred = rf_clf.predict(X_train)
+    accuracy_train = accuracy_score(y_train, y_train_pred)
+    print("TRAIN ACCURACY: ", accuracy_train)
 
     # Evaluate
     accuracy = accuracy_score(y_test, y_pred)
@@ -187,10 +199,10 @@ def perform_random_forest_classifier(df, strategy, feature_cols, output_dir):
 
     print(f"Random Forest Classification Performance:")
     print(f"  Accuracy: {accuracy:.6f}")
-    print(f"  Precision: {precision:.6f}")
-    print(f"  Recall: {recall:.6f}")
-    print(f"  F1 Score: {f1:.6f}")
-    print(f"  ROC AUC Score: {auc:.6f}")
+    # print(f"  Precision: {precision:.6f}")
+    # print(f"  Recall: {recall:.6f}")
+    # print(f"  F1 Score: {f1:.6f}")
+    # print(f"  ROC AUC Score: {auc:.6f}")
 
     # Save Random Forest Classification Metrics
     metrics_path = os.path.join(
@@ -216,19 +228,33 @@ def perform_lightgbm_regression(df, strategy, feature_cols, output_dir):
         X, y, test_size=0.2, shuffle=False
     )
 
-    lgbm = lgb.LGBMRegressor(random_state=42, verbose=-1)
+    lgbm = lgb.LGBMRegressor(
+        n_estimators=500,
+        learning_rate=0.01,
+        max_depth=7,
+        num_leaves=31,
+        lambda_l1=0.1,
+        lambda_l2=0.1,
+        min_child_samples=10,
+        random_state=42,
+        verbose=-1,
+    )
 
     lgbm.fit(X_train, y_train)
 
     y_pred = lgbm.predict(X_test)
+
+    y_train_pred = lgbm.predict(X_train)
+    accuracy_train = r2_score(y_train, y_train_pred)
+    print("TRAIN R2: ", accuracy_train)
 
     mse = mean_squared_error(y_test, y_pred)
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
     print(f"LightGBM Regression Performance:")
-    print(f"  Mean Squared Error (MSE): {mse:.6f}")
-    print(f"  Mean Absolute Error (MAE): {mae:.6f}")
+    # print(f"  Mean Squared Error (MSE): {mse:.6f}")
+    # print(f"  Mean Absolute Error (MAE): {mae:.6f}")
     print(f"  R^2 Score: {r2:.6f}")
 
     # Feature Importance
@@ -276,13 +302,26 @@ def perform_lightgbm_classification(df, strategy, feature_cols, output_dir):
     )
 
     lgbm_clf = lgb.LGBMClassifier(
-        n_estimators=100, learning_rate=0.05, max_depth=-1, random_state=42, verbose=-1
+        n_estimators=500,
+        max_depth=1,
+        num_leaves=31,
+        learning_rate=0.01,
+        random_state=42,
+        verbose=-1,
+        lambda_l1=0.1,
+        lambda_l2=0.2,
+        min_child_samples=10,
+        is_unbalance=True,
     )
 
     lgbm_clf.fit(X_train, y_train)
 
     y_pred = lgbm_clf.predict(X_test)
     y_proba = lgbm_clf.predict_proba(X_test)[:, 1]
+
+    y_train_pred = lgbm_clf.predict(X_train)
+    accuracy_train = accuracy_score(y_train, y_train_pred)
+    print("TRAIN accuracy: ", accuracy_train)
 
     accuracy = accuracy_score(y_test, y_pred)
     precision = precision_score(y_test, y_pred, zero_division=0)
@@ -292,10 +331,10 @@ def perform_lightgbm_classification(df, strategy, feature_cols, output_dir):
 
     print(f"LightGBM Classification Performance:")
     print(f"  Accuracy: {accuracy:.6f}")
-    print(f"  Precision: {precision:.6f}")
-    print(f"  Recall: {recall:.6f}")
-    print(f"  F1 Score: {f1:.6f}")
-    print(f"  ROC AUC Score: {auc:.6f}")
+    # print(f"  Precision: {precision:.6f}")
+    # print(f"  Recall: {recall:.6f}")
+    # print(f"  F1 Score: {f1:.6f}")
+    # print(f"  ROC AUC Score: {auc:.6f}")
 
     # Save LightGBM Classification Metrics
     metrics_path = os.path.join(
@@ -353,7 +392,7 @@ def main():
 
         final_count = len(df_merged)
         dropped_percentage = ((initial_count - final_count) / initial_count) * 100
-        print(f"Dropped {dropped_percentage:.2f}% for {strategy}")
+        # print(f"Dropped {dropped_percentage:.2f}% for {strategy}")
 
         if df_merged.empty:
             print(f"No data dropping NaNs for {strategy}")
