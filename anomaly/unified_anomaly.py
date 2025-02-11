@@ -19,7 +19,6 @@ from backtest_optimizer.main import (
 )
 
 
-
 def mark_extremes_advanced(
     prices: List[float],
     threshold_abs: float = 0.0,
@@ -281,7 +280,6 @@ def simulate_trading_std(
     print_trades=False,
     comission_rate=0.0002,
 ):
-
     price_array = price_data.to_numpy(dtype=np.float64)
     ma_array = ma_data.to_numpy(dtype=np.float64)
     rsi_data = rsi_data.to_numpy(dtype=np.float64)
@@ -479,7 +477,6 @@ def simulate_trading_percentile(
     percentile,
     max_entries,
 ):
-
     initial_capital = 1.0
     capital = initial_capital
     capital_history = pd.Series(index=price_data.index, data=np.nan)
@@ -571,14 +568,11 @@ def simulate_trading_percentile(
     return capital_history
 
 
-
 def calculate_rsi(df, window=14):
     rsi = ta.momentum.RSIIndicator(close=df["close"], window=window)
     rsi_values = rsi.rsi()
     rsi_values = np.maximum(rsi_values, 0)  # Ensure non-negative
     return rsi_values
-
-
 
 
 def analyze_anomalies(
@@ -757,8 +751,10 @@ def compute_statistics(results_df, model_name):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
-file_path = "/Users/alexanderdemachev/PycharmProjects/strategy/data/futures/1min/BTCUSDT.csv"
-preds_path = '/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results'
+file_path = (
+    "/Users/alexanderdemachev/PycharmProjects/strategy/data/futures/1min/BTCUSDT.csv"
+)
+preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results"
 
 sequence_length = 100
 start_date = pd.Timestamp("2020-01-01 00:00:00")
@@ -831,7 +827,6 @@ model_params = {
 train_initial_length = pd.DateOffset(months=6)
 train_expand_step = pd.DateOffset(months=3)
 test_length = pd.DateOffset(months=3)
-
 
 
 combined_test_dates = []
@@ -941,130 +936,123 @@ while current_test_end <= end_date or current_test_start < end_date:
     current_test_end = current_test_start + test_length
 
 
-for filename in os.listdir(preds_path):
-    if filename.endswith("_combined_scores_3m_20202021full.npy"):
-        model_name = filename.replace("_combined_scores_3m_20202021full.npy", "")
-        combined_scores[model_name] = np.load(filename, allow_pickle=True)
-        print(f"Loaded combined_scores for {model_name} from {filename}")
+# del combined_scores["autoencoder"]
 
-for filename in os.listdir(preds_path):
-    if filename.endswith("_combined_preds_3m.npy"):
-        model_name = filename.replace("_combined_preds_3m.npy", "")
-        combined_predictions[model_name] = np.load(filename, allow_pickle=True)
-        print(f"Loaded combined_predictions for {model_name} from {filename}")
+# combined_scores["autoencoder"] = np.load(
+#     "autoencoder_combined_scores_3m_20202021full.npy"
+# )
 
 
-del combined_scores["autoencoder"]
+def test_outputs():
+    for model_name in model_names:
+        print(f"\n=== Final Outputs for Model: {model_name} ===")
 
-combined_scores["autoencoder"] = np.load(
-    "autoencoder_combined_scores_3m_20202021full.npy"
-)
+        combined_scores[model_name] = np.array(combined_scores[model_name])
+        scores = np.array(combined_scores[model_name])
 
-for model_name in model_names:
-    print(f"\n=== Final Outputs for Model: {model_name} ===")
+        rolling_percentiles = np.zeros_like(scores, dtype=float)
+        rolling_anomalies = np.zeros_like(scores, dtype=bool)
+        # rolling_stds = np.zeros_like(scores, dtype=float)
 
-    combined_scores[model_name] = np.array(combined_scores[model_name])
-    scores = np.array(combined_scores[model_name])
+        for i in range(window_size_minutes, len(scores)):
+            start_idx = i - window_size_minutes
+            end_idx = i
+            window_slice = scores[start_idx:end_idx]
 
-    rolling_percentiles = np.zeros_like(scores, dtype=float)
-    rolling_anomalies = np.zeros_like(scores, dtype=bool)
-    # rolling_stds = np.zeros_like(scores, dtype=float)
+            current_score = scores[i]
 
-    for i in range(window_size_minutes, len(scores)):
-        start_idx = i - window_size_minutes
-        end_idx = i
-        window_slice = scores[start_idx:end_idx]
+            rank = percentileofscore(window_slice, current_score, kind="rank")
+            # rolling_percentiles[i] = rank
 
-        current_score = scores[i]
+            if rank >= percentile:
+                rolling_anomalies[i] = True
 
-        rank = percentileofscore(window_slice, current_score, kind="rank")
-        # rolling_percentiles[i] = rank
+            # deviation = deviation_from_mean(window_slice[-99:], current_score)
+            # rolling_stds[i] = deviation
 
-        if rank >= percentile:
-            rolling_anomalies[i] = True
-
-        # deviation = deviation_from_mean(window_slice[-99:], current_score)
-        # rolling_stds[i] = deviation
-
-    anomaly_dates = np.array(combined_test_dates)[rolling_anomalies]
-    print(
-        f"Found {rolling_anomalies.sum()} anomalies using rolling percentile = {percentile}"
-    )
-
-    plt.figure(figsize=(15, 5))
-    unscaled_prices = np.array(original_prices_buffer)
-    plt.plot(combined_test_dates, unscaled_prices, label="Open Price", color="blue")
-
-    rolling_avg_values = (
-        original_data_sorted["rolling_avg"].reindex(combined_test_dates).values
-    )
-    plt.plot(
-        combined_test_dates,
-        rolling_avg_values,
-        label="Rolling Avg",
-        color="orange",
-        linewidth=2,
-    )
-
-    anomaly_prices = unscaled_prices[rolling_anomalies]
-    plt.scatter(anomaly_dates, anomaly_prices, color="red", label="Anomalies")
-    plt.title(
-        f"{model_name.capitalize()} Anomaly Detection (Rolling) for Entire Test Period"
-    )
-    plt.xlabel("Date")
-    plt.ylabel("Open Price")
-    plt.legend()
-    plt.show()
-
-    # analysis_results = analyze_anomalies(anomaly_dates, original_data_sorted, window_minutes=window_minutes)
-    # compute_statistics(analysis_results, model_name)
-
-    ma_window = window_minutes
-    original_data_sorted["MA"] = (
-        original_data_sorted["close"].rolling(window=ma_window, min_periods=1).mean()
-    )
-
-    combined_test_data = original_data_sorted.loc[combined_test_dates, "close"]
-    combined_ma_data = original_data_sorted.loc[combined_test_dates, "MA"]
-
-    if mode == "percentile":
-        capital_history = simulate_trading_percentile(
-            model_name=model_name,
-            price_data=original_data_sorted.loc[combined_test_dates, "close"],
-            ma_data=original_data_sorted.loc[combined_test_dates, "MA"],
-            scores=scores,
-            rolling_percentiles=rolling_percentiles,
-            rolling_anomalies=rolling_anomalies,
-            percentile=percentile,
-            max_entries=max_entries,
-        )
-    elif mode == "std":
-        capital_history, closed_trades = simulate_trading_std(
-            model_name=model_name,
-            price_data=original_data_sorted.loc[combined_test_dates, "close"],
-            scaled_prices=scaled_prices,
-            predicted_prices=combined_predictions[model_name],
-            ma_data=original_data_sorted.loc[combined_test_dates, "MA"],
-            rsi_data=original_data_sorted.loc[combined_test_dates, "rsi"],
-            scores=scores,
-            rolling_anomalies=rolling_anomalies,
-            num_std=num_std,
-            max_entries=max_entries,
-            exit_val=exit_val,
-            distr_len=99,
-            num_std_exit=1,
+        anomaly_dates = np.array(combined_test_dates)[rolling_anomalies]
+        print(
+            f"Found {rolling_anomalies.sum()} anomalies using rolling percentile = {percentile}"
         )
 
-    plt.figure(figsize=(15, 5))
-    plt.plot(capital_history.index, capital_history.values - 1, label="Capital")
-    plt.title(f"P&L Curve for {model_name.capitalize()} (Rolling Window Simulation)")
-    plt.xlabel("Date")
-    plt.ylabel("Returns")
-    plt.legend()
-    plt.show()
+        plt.figure(figsize=(15, 5))
+        unscaled_prices = np.array(original_prices_buffer)
+        plt.plot(combined_test_dates, unscaled_prices, label="Open Price", color="blue")
 
-    final_capital = capital_history.iloc[-1]
-    print(f"Final Capital for {model_name}: {final_capital:.4f}")
+        rolling_avg_values = (
+            original_data_sorted["rolling_avg"].reindex(combined_test_dates).values
+        )
+        plt.plot(
+            combined_test_dates,
+            rolling_avg_values,
+            label="Rolling Avg",
+            color="orange",
+            linewidth=2,
+        )
+
+        anomaly_prices = unscaled_prices[rolling_anomalies]
+        plt.scatter(anomaly_dates, anomaly_prices, color="red", label="Anomalies")
+        plt.title(
+            f"{model_name.capitalize()} Anomaly Detection (Rolling) for Entire Test Period"
+        )
+        plt.xlabel("Date")
+        plt.ylabel("Open Price")
+        plt.legend()
+        plt.show()
+
+        # analysis_results = analyze_anomalies(anomaly_dates, original_data_sorted, window_minutes=window_minutes)
+        # compute_statistics(analysis_results, model_name)
+
+        ma_window = window_minutes
+        original_data_sorted["MA"] = (
+            original_data_sorted["close"]
+            .rolling(window=ma_window, min_periods=1)
+            .mean()
+        )
+
+        combined_test_data = original_data_sorted.loc[combined_test_dates, "close"]
+        combined_ma_data = original_data_sorted.loc[combined_test_dates, "MA"]
+
+        if mode == "percentile":
+            capital_history = simulate_trading_percentile(
+                model_name=model_name,
+                price_data=original_data_sorted.loc[combined_test_dates, "close"],
+                ma_data=original_data_sorted.loc[combined_test_dates, "MA"],
+                scores=scores,
+                rolling_percentiles=rolling_percentiles,
+                rolling_anomalies=rolling_anomalies,
+                percentile=percentile,
+                max_entries=max_entries,
+            )
+        elif mode == "std":
+            capital_history, closed_trades = simulate_trading_std(
+                model_name=model_name,
+                price_data=original_data_sorted.loc[combined_test_dates, "close"],
+                scaled_prices=scaled_prices,
+                predicted_prices=combined_predictions[model_name],
+                ma_data=original_data_sorted.loc[combined_test_dates, "MA"],
+                rsi_data=original_data_sorted.loc[combined_test_dates, "rsi"],
+                scores=scores,
+                rolling_anomalies=rolling_anomalies,
+                num_std=num_std,
+                max_entries=max_entries,
+                exit_val=exit_val,
+                distr_len=99,
+                num_std_exit=1,
+            )
+
+        plt.figure(figsize=(15, 5))
+        plt.plot(capital_history.index, capital_history.values - 1, label="Capital")
+        plt.title(
+            f"P&L Curve for {model_name.capitalize()} (Rolling Window Simulation)"
+        )
+        plt.xlabel("Date")
+        plt.ylabel("Returns")
+        plt.legend()
+        plt.show()
+
+        final_capital = capital_history.iloc[-1]
+        print(f"Final Capital for {model_name}: {final_capital:.4f}")
 
 
 def calc_pl(data_dict, params):
@@ -1141,44 +1129,7 @@ def calc_pl(data_dict, params):
         results_dict[ticker] = daily_rets
 
     combined_returns = pd.concat(results_dict.values(), axis=1).sum(axis=1)
-    return combined_returns, closed_trades, rolling_anomalies  #######
-
-
-dates = pd.to_datetime(combined_test_dates)
-df = pd.DataFrame(index=dates)
-df.index.name = "datetime"
-
-df["close"] = original_prices_buffer
-df["scaled_price"] = scaled_prices
-df["scores"] = combined_scores["kan"]
-
-df["predicted_price"] = combined_predictions["kan"]
-
-data_dict = {"BTCUSDT": df}
-
-best_params = {
-    "num_std": 1,
-    "num_std_exit": 2,
-    "percentile": 95,
-    "exit_val": "rsi",
-    "max_entries": 10,
-    "RSI_window_minutes": 100,
-    "Ma_window_minutes": 89,
-    "window_size_minutes": 1000,
-    "rsi_entry": (30, 70),
-    "rsi_exit": (30, 70),
-    "plot_pl": True,
-    "distr_len": 99,
-    "print_trades": True,
-    "comission_rate": 0.0002,
-}
-
-start_date = "2021-06-01"
-end_date = "2021-12-31"
-
-data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
-
-results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+    return combined_returns  # , closed_trades, rolling_anomalies  #######
 
 
 def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365):
@@ -1200,39 +1151,91 @@ def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365
     return sharpe_ratio
 
 
-params = {
-    "num_std": [1, 2, 3],
-    "num_std_exit": [1, 2, 3],
-    "percentile": [90, 95, 99],
-    "exit_val": ["rsi", "ma"],  # or "ma"
-    "max_entries": [5, 10],
-    "plot_pl": False,
-    "distr_len": 99,
-    "RSI_window_minutes": [50, 100, 200],
-    "Ma_window_minutes": [34, 89, 200, 500],
-    "window_size_minutes": [1000, 5000],
-    "rsi_entry": [(30, 70), (40, 60)],
-    "rsi_exit": [(30, 70), (40, 60), (50, 50)],
-    "print_trades": False,
-    "comission_rate": 0.0002,
-}
+def main():
+    for filename in os.listdir(preds_path):
+        if filename.endswith("_combined_scores_3m_20202021full.npy"):
+            model_name = filename.replace("_combined_scores_3m_20202021full.npy", "")
+            combined_scores[model_name] = np.load(filename, allow_pickle=True)
+            print(f"Loaded combined_scores for {model_name} from {filename}")
 
-save_path = "results/"
-file_prefix = f"anomaly"
+    for filename in os.listdir(preds_path):
+        if filename.endswith("_combined_preds_3m.npy"):
+            model_name = filename.replace("_combined_preds_3m.npy", "")
+            combined_predictions[model_name] = np.load(filename, allow_pickle=True)
+            print(f"Loaded combined_predictions for {model_name} from {filename}")
 
-optimizer = ParameterOptimizer(
-    calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=1
-)
+    dates = pd.to_datetime(combined_test_dates)
+    df = pd.DataFrame(index=dates)
+    df.index.name = "datetime"
 
-optimizer.split_data(data_dict, "2021-06-01")
-optimizer.optimize(
-    data_dict=data_dict,
-    params=params,
-    n_runs=64,
-    best_trials_pct=0.1,
-    n_splits=3,
-    n_test_splits=1,
-)
+    df["close"] = original_prices_buffer
+    df["scaled_price"] = scaled_prices
+    df["scores"] = combined_scores["kan"]
+
+    df["predicted_price"] = combined_predictions["kan"]
+
+    data_dict = {"BTCUSDT": df}
+
+    best_params = {
+        "num_std": 1,
+        "num_std_exit": 2,
+        "percentile": 95,
+        "exit_val": "rsi",
+        "max_entries": 10,
+        "RSI_window_minutes": 100,
+        "Ma_window_minutes": 89,
+        "window_size_minutes": 1000,
+        "rsi_entry": (30, 70),
+        "rsi_exit": (30, 70),
+        "plot_pl": True,
+        "distr_len": 99,
+        "print_trades": True,
+        "comission_rate": 0.0002,
+    }
+
+    # start_date = "2021-06-01"
+    # end_date = "2021-12-31"
+
+    # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
+
+    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+
+    # print(calculate_sharpe_ratio(results))
+
+    params = {
+        "num_std": [1, 2, 3],
+        "num_std_exit": [1, 2, 3],
+        "percentile": [90, 95, 99],
+        "exit_val": ["rsi", "ma"],  # or "ma"
+        "max_entries": [5, 10],
+        "plot_pl": False,
+        "distr_len": 99,
+        "RSI_window_minutes": [50, 100, 200],
+        "Ma_window_minutes": [34, 89, 200, 500],
+        "window_size_minutes": [1000, 5000],
+        "rsi_entry": [(30, 70), (40, 60)],
+        "rsi_exit": [(30, 70), (40, 60), (50, 50)],
+        "print_trades": False,
+        "comission_rate": 0.0002,
+    }
+
+    save_path = "results/"
+    file_prefix = f"anomaly"
+
+    optimizer = ParameterOptimizer(
+        calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=1
+    )
+
+    optimizer.split_data(data_dict, "2021-06-01")
+    optimizer.optimize(
+        data_dict=data_dict,
+        params=params,
+        n_runs=64,
+        best_trials_pct=0.1,
+        n_splits=3,
+        n_test_splits=1,
+    )
 
 
-
+if __name__ == "__main__":
+    main()
