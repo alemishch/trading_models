@@ -329,10 +329,25 @@ def simulate_trading_std(
             trades_to_close = []
 
             opposite_signal = False
-            if base_trade_type == "buy" and current_price > current_ma_short:
-                opposite_signal = True
-            elif base_trade_type == "sell" and current_price < current_ma_long:
-                opposite_signal = True
+            if base_trade_type == "buy":
+                if exit_val == "rsi":
+                    if (
+                        current_rsi > rsi_entry[1]
+                        and predicted_price < scaled_price
+                        and with_short
+                    ):
+                        opposite_signal = True
+                elif exit_val == "ma":
+                    if current_price > current_ma_short and with_short:
+                        opposite_signal = True
+
+            elif base_trade_type == "sell":
+                if exit_val == "rsi":
+                    if current_rsi < rsi_entry[0] and predicted_price > scaled_price:
+                        opposite_signal = True
+                elif exit_val == "ma":
+                    if current_price < current_ma_long:
+                        opposite_signal = True
 
             if opposite_signal:
                 for trade in open_trades:
@@ -461,9 +476,9 @@ def simulate_trading_std(
                             trade_type = "sell"
                     elif exit_val == "ma":
                         if current_price > current_ma_long:
-                            trade_type = "sell"
-                        if current_price < current_ma_short and with_short:
                             trade_type = "buy"
+                        if current_price < current_ma_short and with_short:
+                            trade_type = "sell"
 
                     if trade_type is not None:
                         trade_volume = capital / max_entries
