@@ -433,16 +433,10 @@ def simulate_trading_std(
         if open_trades:
             # Check for a trade flip (opening an opposite position)
             opposite_trade_type = "sell" if base_trade_type == "buy" else "buy"
-            if check_entry_signal(
-                trade_type=opposite_trade_type,
-                current_rsi=current_rsi,
-                current_price=current_price,
-                current_ma_short=current_ma_short,
-                current_ma_long=current_ma_long,
-                rsi_entry=rsi_entry,
-                exit_val=exit_val,
-                with_short=with_short,
-            ):
+
+            flip_signal = get_entry_signal(i) == opposite_trade_type
+
+            if flip_signal:
                 for trade in open_trades:
                     trade.close_trade(
                         exit_time=timestamp,
@@ -1238,7 +1232,7 @@ def calc_pl(data_dict, params):
         results_dict[ticker] = daily_rets
 
     combined_returns = pd.concat(results_dict.values(), axis=1).sum(axis=1)
-    return combined_returns  # , closed_trades, rolling_anomalies  #######
+    return combined_returns, closed_trades, rolling_anomalies  #######
 
 
 def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365):
@@ -1313,9 +1307,9 @@ def main():
 
     # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
 
-    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+    results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
 
-    # print(calculate_sharpe_ratio(results))
+    print(calculate_sharpe_ratio(results))
 
     params = {
         "num_std": [1, 2, 3],
@@ -1353,7 +1347,7 @@ def main():
     #     n_splits=3,
     #     n_test_splits=1,
     # )
-    optimizer.plot_returns(data_dict, best_params)
+    # optimizer.plot_returns(data_dict, best_params)
 
 
 if __name__ == "__main__":
