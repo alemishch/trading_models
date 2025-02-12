@@ -283,6 +283,8 @@ def simulate_trading_std(
     price_array = price_data.to_numpy(dtype=np.float64)
     ma_array = ma_data.to_numpy(dtype=np.float64)
     rsi_data = rsi_data.to_numpy(dtype=np.float64)
+    scaled_prices = scaled_prices.to_numpy(dtype=np.float64)
+    predicted_prices = predicted_prices.to_numpy(dtype=np.float64)
     anomalies_array = np.asarray(rolling_anomalies, dtype=bool)
 
     index_array = price_data.index.to_numpy()
@@ -405,15 +407,9 @@ def simulate_trading_std(
                         ):
                             trade_type = "sell"
                     elif exit_val == "ma":
-                        if (
-                            current_price > current_ma
-                            and predicted_price < scaled_price
-                        ):
-                            trade_type = "sell"
-                        elif (
-                            current_price < current_ma
-                            and predicted_price > scaled_price
-                        ):
+                        # if current_price > current_ma:
+                        #     trade_type = "sell"
+                        if current_price < current_ma:
                             trade_type = "buy"
 
                     if trade_type is not None:
@@ -754,7 +750,7 @@ print(device)
 file_path = (
     "/Users/alexanderdemachev/PycharmProjects/strategy/data/futures/1min/BTCUSDT.csv"
 )
-preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results"
+preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
 sequence_length = 100
 start_date = pd.Timestamp("2020-01-01 00:00:00")
@@ -943,7 +939,7 @@ while current_test_end <= end_date or current_test_start < end_date:
 # )
 
 
-def test_outputs():
+def _test_outputs():
     for model_name in model_names:
         print(f"\n=== Final Outputs for Model: {model_name} ===")
 
@@ -1067,15 +1063,22 @@ def calc_pl(data_dict, params):
     distr_len = params.get("distr_len", 99)
     Ma_window_minutes = params.get("Ma_window_minutes", 500)
     RSI_window_minutes = params.get("RSI_window_minutes", 500)
-    window_size_minutes = params.get("window_size_minutes", 500)
-    rsi_entry = params.get("rsi_entry", [40, 60])
-    rsi_exit = params.get("rsi_exit", [60, 40])
+    window_size_minutes = params["window_size_minutes"]
+    rsi_entry = (
+        int(params["rsi_entry"].split(",")[0]),
+        int(params["rsi_entry"].split(",")[1]),
+    )
+    rsi_exit = (
+        int(params["rsi_exit"].split(",")[0]),
+        int(params["rsi_exit"].split(",")[1]),
+    )
     max_entries = params.get("max_entries", 5)
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
 
     for ticker, df in data_dict.items():
-        print(f"\n=== Processing Ticker: {ticker} ===")
+        if print_trades:
+            print(f"\n=== Processing Ticker: {ticker} ===")
         price_data = df["close"]
         scaled_prices = df["scaled_price"]
         predicted_prices = df["predicted_price"]
@@ -1086,7 +1089,7 @@ def calc_pl(data_dict, params):
         rolling_anomalies = np.zeros_like(scores, dtype=bool)
 
         for i in range(window_size_minutes, len(scores)):
-            start_idx = i - window_minutes
+            start_idx = i - window_size_minutes
             end_idx = i
             window_slice = scores[start_idx:end_idx]
             current_score = scores[i]
@@ -1094,7 +1097,8 @@ def calc_pl(data_dict, params):
             rank = percentileofscore(window_slice, current_score, kind="rank")
             if rank >= percentile:
                 rolling_anomalies[i] = True
-        print(rolling_anomalies.sum())
+        if print_trades:
+            print(rolling_anomalies.sum())
         profits, closed_trades = simulate_trading_std(
             model_name="kan",
             price_data=price_data,
@@ -1155,13 +1159,17 @@ def main():
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_scores_3m_20202021full.npy"):
             model_name = filename.replace("_combined_scores_3m_20202021full.npy", "")
-            combined_scores[model_name] = np.load(filename, allow_pickle=True)
+            combined_scores[model_name] = np.load(
+                preds_path + filename, allow_pickle=True
+            )
             print(f"Loaded combined_scores for {model_name} from {filename}")
 
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_preds_3m.npy"):
             model_name = filename.replace("_combined_preds_3m.npy", "")
-            combined_predictions[model_name] = np.load(filename, allow_pickle=True)
+            combined_predictions[model_name] = np.load(
+                preds_path + filename, allow_pickle=True
+            )
             print(f"Loaded combined_predictions for {model_name} from {filename}")
 
     dates = pd.to_datetime(combined_test_dates)
@@ -1177,18 +1185,18 @@ def main():
     data_dict = {"BTCUSDT": df}
 
     best_params = {
-        "num_std": 1,
-        "num_std_exit": 2,
+        "num_std": 3,
+        "num_std_exit": 3,
         "percentile": 95,
-        "exit_val": "rsi",
+        "exit_val": "ma",
         "max_entries": 10,
-        "RSI_window_minutes": 100,
-        "Ma_window_minutes": 89,
-        "window_size_minutes": 1000,
-        "rsi_entry": (30, 70),
-        "rsi_exit": (30, 70),
+        "distr_len": 34,
+        "Ma_window_minutes": 200,
+        "window_size_minutes": 100,
+        "RSI_window_minutes": 55,
+        "rsi_entry": "30,70",
+        "rsi_exit": "30,70",
         "plot_pl": True,
-        "distr_len": 99,
         "print_trades": True,
         "comission_rate": 0.0002,
     }
@@ -1205,36 +1213,37 @@ def main():
     params = {
         "num_std": [1, 2, 3],
         "num_std_exit": [1, 2, 3],
-        "percentile": [90, 95, 99],
+        "percentile": [75, 90, 95, 99],
         "exit_val": ["rsi", "ma"],  # or "ma"
-        "max_entries": [5, 10],
+        "max_entries": [5, 10, 20],
         "plot_pl": False,
-        "distr_len": 99,
-        "RSI_window_minutes": [50, 100, 200],
+        "distr_len": [34, 144],
+        "RSI_window_minutes": [55, 89],
         "Ma_window_minutes": [34, 89, 200, 500],
-        "window_size_minutes": [1000, 5000],
-        "rsi_entry": [(30, 70), (40, 60)],
-        "rsi_exit": [(30, 70), (40, 60), (50, 50)],
+        "window_size_minutes": [100, 1000, 5000],
+        "rsi_entry": ["30,70", "40,60"],
+        "rsi_exit": ["30,70", "40,60", "50,50"],
         "print_trades": False,
         "comission_rate": 0.0002,
     }
 
-    save_path = "results/"
+    save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
     file_prefix = f"anomaly"
 
     optimizer = ParameterOptimizer(
-        calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=1
+        calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=5
     )
 
-    optimizer.split_data(data_dict, "2021-06-01")
-    optimizer.optimize(
-        data_dict=data_dict,
-        params=params,
-        n_runs=64,
-        best_trials_pct=0.1,
-        n_splits=3,
-        n_test_splits=1,
-    )
+    # optimizer.split_data(data_dict, "2021-06-01")
+    # optimizer.optimize(
+    #     data_dict=data_dict,
+    #     params=params,
+    #     n_runs=64,
+    #     best_trials_pct=0.1,
+    #     n_splits=3,
+    #     n_test_splits=1,
+    # )
+    optimizer.plot_returns(data_dict, best_params)
 
 
 if __name__ == "__main__":
