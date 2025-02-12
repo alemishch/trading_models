@@ -10,7 +10,9 @@ from pandas.tseries.offsets import DateOffset
 from scipy.stats import percentileofscore, zscore
 import ta
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Literal
+from datetime import datetime
+from pydantic import BaseModel, Field, validator
 from models import *
 
 
@@ -262,82 +264,121 @@ def deviation_from_mean(data, value):
 
 
 def check_entry_signal(
-    trade_type,
-    current_rsi,
-    scaled_price,
-    predicted_price,
-    current_price,
-    current_ma_short,
-    current_ma_long,
-    rsi_entry,
-    exit_val,
-    with_short,
-):
-    if trade_type == "buy":
-        if exit_val == "rsi":
-            return current_rsi < rsi_entry[0] and predicted_price > scaled_price
-        elif exit_val == "ma":
-            return current_price < current_ma_long
-    elif trade_type == "sell" and with_short:
-        if exit_val == "rsi":
-            return current_rsi > rsi_entry[1] and predicted_price < scaled_price
-        elif exit_val == "ma":
-            return current_price > current_ma_short
-    return False
+    trade_type: str,
+    current_rsi: float,
+    current_price: float,
+    current_ma_short: float,
+    current_ma_long: float,
+    rsi_entry: [list, tuple],
+    exit_val: str,
+    with_short: bool,
+) -> bool:
+    conditions = {
+        ("buy", "rsi"): current_rsi < rsi_entry[0],
+        ("buy", "ma"): current_price < current_ma_long,
+        ("sell", "rsi"): (current_rsi > rsi_entry[1]) if with_short else False,
+        ("sell", "ma"): (current_price > current_ma_short) if with_short else False,
+    }
+    return conditions.get((trade_type, exit_val), False)
 
 
+class Trade(BaseModel):
+    trade_type: Literal["buy", "sell"] = Field(..., description="Type of the trade")
+    volume: float = Field(..., gt=0, description="Volume of the trade")
+    entry_price: float = Field(
+        ..., gt=0, description="Price at which the trade was entered"
+    )
+    entry_time: datetime = Field(
+        ..., description="Timestamp when the trade was entered"
+    )
+
+    exit_time: Optional[datetime] = Field(
+        None, description="Timestamp when the trade was closed"
+    )
+    exit_price: Optional[float] = Field(
+        None, gt=0, description="Price at which the trade was closed"
+    )
+    profit: Optional[float] = Field(None, description="Profit or loss from the trade")
+
+    @validator("entry_time", "exit_time", pre=True, always=True)
+    def convert_np_datetime(cls, v):
+        if isinstance(v, np.datetime64):
+            # Convert numpy.datetime64 to Python datetime
+            return pd.Timestamp(v).to_pydatetime()
+        return v
+
+    def close_trade(
+        self, exit_time: datetime, exit_price: float, commission_rate: float
+    ) -> None:
+        """
+        Closes the trade by setting the exit time, exit price, and calculating the profit.
+        """
+        self.exit_time = exit_time
+        self.exit_price = exit_price
+
+        if self.trade_type == "buy":
+            raw_profit = (exit_price - self.entry_price) * (
+                self.volume / self.entry_price
+            )
+        else:  # For "sell" trades
+            raw_profit = (self.entry_price - exit_price) * (
+                self.volume / self.entry_price
+            )
+
+        # Deduct commission from the profit
+        self.profit = raw_profit - (self.volume * commission_rate)
+
+
+# noinspection PyTypeChecker
 def simulate_trading_std(
     model_name,
-    price_data,
-    scaled_prices,
-    predicted_prices,
-    ma_data_short,
-    ma_data_long,
-    rsi_data,
-    scores,
+    price_data: pd.Series,
+    scaled_prices: pd.Series,
+    predicted_prices: pd.Series,
+    ma_data_short: pd.Series,
+    ma_data_long: pd.Series,
+    rsi_data: pd.Series,
+    scores,  # type unspecified
     rolling_anomalies,
-    num_std,
-    max_entries,
+    num_std: float,
+    max_entries: int,
     exit_val,
-    distr_len=99,
-    num_std_exit=1,
-    rsi_entry=[40, 60],
-    rsi_exit=[60, 40],
-    print_trades=False,
-    comission_rate=0.0002,
-    with_short=True,
+    distr_len: int = 99,
+    num_std_exit: float = 1,
+    rsi_entry=(40, 60),
+    rsi_exit=(60, 40),
+    print_trades: bool = False,
+    commission_rate: float = 0.0002,
+    with_short: bool = True,
 ):
+    """
+    Simulates a trading strategy and returns a Pandas Series of daily profits and a list of closed Trade objects.
+    """
+    # Convert data to numpy arrays for fast access.
     price_array = price_data.to_numpy(dtype=np.float64)
     ma_array_short = ma_data_short.to_numpy(dtype=np.float64)
     ma_array_long = ma_data_long.to_numpy(dtype=np.float64)
-    rsi_data = rsi_data.to_numpy(dtype=np.float64)
-    scaled_prices = scaled_prices.to_numpy(dtype=np.float64)
-    predicted_prices = predicted_prices.to_numpy(dtype=np.float64)
+    rsi_array = rsi_data.to_numpy(dtype=np.float64)
+    scaled_prices_array = scaled_prices.to_numpy(dtype=np.float64)
+    predicted_prices_array = predicted_prices.to_numpy(dtype=np.float64)
     anomalies_array = np.asarray(rolling_anomalies, dtype=bool)
-
     index_array = price_data.index.to_numpy()
 
     n = len(price_array)
-    if len(rsi_data) != n or len(anomalies_array) != n:
+    if len(rsi_array) != n or len(anomalies_array) != n:
         raise ValueError(
-            "price_data, ma_data, and rolling_anomalies must have the same length."
+            "price_data, rsi_data, and rolling_anomalies must have the same length."
         )
 
-    rolling_std_series = price_data.rolling(distr_len, min_periods=1).std()
-    rolling_std = rolling_std_series.values
+    rolling_std = price_data.rolling(distr_len, min_periods=1).std().values
 
-    initial_capital = 1.0
-    capital = initial_capital
-    # capital_history_array = np.full(n, np.nan, dtype=np.float64)
-    # capital_history_array[0] = capital
+    capital = 1.0
     profit_array = np.full(n, np.nan, dtype=np.float64)
-
-    open_trades = []
+    open_trades: List[Trade] = []
+    closed_trades: List[Trade] = []
     trade_entries = set()
-    closed_trades = []
 
     base_price = None
-    k = 0
     base_trade_type = None
 
     for i in range(n):
@@ -345,147 +386,108 @@ def simulate_trading_std(
         current_price = price_array[i]
         current_ma_short = ma_array_short[i]
         current_ma_long = ma_array_long[i]
-        current_rsi = rsi_data[i]
-
-        local_std_exit = rolling_std[i]
-
+        current_rsi = rsi_array[i]
+        local_std = rolling_std[i]
         daily_profit = 0.0
+
+        # ----- Handle Trade Exits -----
         if open_trades:
-            trades_to_close = []
-
-            opposite_type = "sell" if base_trade_type == "buy" else "buy"
-
-            opposite_signal = check_entry_signal(
-                trade_type=opposite_type,
+            # Check for a trade flip (opening an opposite position)
+            opposite_trade_type = "sell" if base_trade_type == "buy" else "buy"
+            if check_entry_signal(
+                trade_type=opposite_trade_type,
                 current_rsi=current_rsi,
-                scaled_price=scaled_price,
-                predicted_price=predicted_price,
                 current_price=current_price,
                 current_ma_short=current_ma_short,
                 current_ma_long=current_ma_long,
                 rsi_entry=rsi_entry,
                 exit_val=exit_val,
                 with_short=with_short,
-            )
-
-            if opposite_signal:
+            ):
                 for trade in open_trades:
-                    trade_type = trade["type"]
-                    entry_price = trade["entry_price"]
-                    exit_price = current_price
-                    trade_volume = trade["volume"]
-
-                    if trade_type == "buy":
-                        profit = (exit_price - entry_price) * (
-                            trade_volume / entry_price
-                        )
-                    else:
-                        profit = (entry_price - exit_price) * (
-                            trade_volume / entry_price
-                        )
-
-                    profit -= trade_volume * comission_rate
-                    capital += profit
-                    daily_profit += profit
-
+                    trade.close_trade(
+                        exit_time=timestamp,
+                        exit_price=current_price,
+                        commission_rate=commission_rate,
+                    )
+                    capital += trade.profit
+                    daily_profit += trade.profit
                     if print_trades:
                         print(
-                            f"Trade flipped: {trade_type} at {trade['entry_time']} "
-                            f"(Entry Price: {entry_price:.2f}), exited at {timestamp} "
-                            f"(Exit Price: {exit_price:.2f}), Volume: {trade_volume:.4f}, "
-                            f"P&L: {profit:.4f}"
+                            f"Trade flipped: {trade.trade_type} entered at {trade.entry_time} "
+                            f"(Entry Price: {trade.entry_price:.2f}), exited at {timestamp} "
+                            f"(Exit Price: {current_price:.2f}), Volume: {trade.volume:.4f}, "
+                            f"P&L: {trade.profit:.4f}"
                         )
-
-                    closed_trades.append(
-                        {
-                            "type": trade_type,
-                            "entry_time": trade["entry_time"],
-                            "entry_price": entry_price,
-                            "exit_time": timestamp,
-                            "exit_price": exit_price,
-                            "profit": profit,
-                        }
-                    )
-
+                    closed_trades.append(trade)
                 open_trades = []
-                k = 0
+                base_price, base_trade_type = None, None
 
+            # Check individual trade exit conditions
+            trades_to_close = []
             for trade in open_trades:
-                trade_type = trade["type"]
-                entry_price = trade["entry_price"]
+                exit_signal = False
 
                 if exit_val == "rsi":
-                    if (trade_type == "buy" and current_rsi >= rsi_exit[0]) or (
-                        trade_type == "sell" and current_rsi <= rsi_exit[1]
-                    ):
-                        trades_to_close.append(trade)
-                        continue
+                    if trade.trade_type == "buy" and current_rsi >= rsi_exit[0]:
+                        exit_signal = True
+                    elif trade.trade_type == "sell" and current_rsi <= rsi_exit[1]:
+                        exit_signal = True
                 elif exit_val == "ma":
-                    if (trade_type == "buy" and current_price >= current_ma_long) or (
-                        trade_type == "sell" and current_price <= current_ma_short
+                    if trade.trade_type == "buy" and current_price >= current_ma_long:
+                        exit_signal = True
+                    elif (
+                        trade.trade_type == "sell" and current_price <= current_ma_short
                     ):
-                        trades_to_close.append(trade)
-                        continue
+                        exit_signal = True
 
-                if trade_type == "buy":
-                    if current_price >= (entry_price + local_std_exit * num_std_exit):
-                        trades_to_close.append(trade)
-                elif trade_type == "sell":
-                    if current_price <= (entry_price - local_std_exit * num_std_exit):
-                        trades_to_close.append(trade)
+                # Standard deviation-based exit condition
+                if (
+                    trade.trade_type == "buy"
+                    and current_price >= trade.entry_price + local_std * num_std_exit
+                ):
+                    exit_signal = True
+                if (
+                    trade.trade_type == "sell"
+                    and current_price <= trade.entry_price - local_std * num_std_exit
+                ):
+                    exit_signal = True
+
+                if exit_signal:
+                    trades_to_close.append(trade)
 
             for trade in trades_to_close:
-                trade_type = trade["type"]
-                entry_price = trade["entry_price"]
-                exit_price = current_price
-                trade_volume = trade["volume"]
-
-                if trade_type == "buy":
-                    profit = (exit_price - entry_price) * (trade_volume / entry_price)
-                else:
-                    profit = (entry_price - exit_price) * (trade_volume / entry_price)
-
-                profit -= trade_volume * comission_rate
-                capital += profit
-                # capital_history_array[i] = capital
-                daily_profit += profit
-
+                trade.close_trade(
+                    exit_time=timestamp,
+                    exit_price=current_price,
+                    commission_rate=commission_rate,
+                )
+                capital += trade.profit
+                daily_profit += trade.profit
                 if print_trades:
                     print(
-                        f"Trade executed: {trade_type} at {trade['entry_time']} "
-                        f"(Entry Price: {entry_price:.2f}), exited at {timestamp} "
-                        f"(Exit Price: {exit_price:.2f}), Volume: {trade_volume:.4f}, "
-                        f"P&L: {profit:.4f}"
+                        f"Trade executed: {trade.trade_type} entered at {trade.entry_time} "
+                        f"(Entry Price: {trade.entry_price:.2f}), exited at {timestamp} "
+                        f"(Exit Price: {current_price:.2f}), Volume: {trade.volume:.4f}, "
+                        f"P&L: {trade.profit:.4f}"
                     )
+                closed_trades.append(trade)
+            # Keep open trades that haven't met exit conditions
+            open_trades = [
+                trade for trade in open_trades if trade not in trades_to_close
+            ]
 
-                closed_trades.append(
-                    {
-                        "type": trade_type,
-                        "entry_time": trade["entry_time"],
-                        "entry_price": entry_price,
-                        "exit_time": timestamp,
-                        "exit_price": exit_price,
-                        "profit": profit,
-                    }
-                )
-
-            open_trades = [t for t in open_trades if t not in trades_to_close]
-            k = len(open_trades)
-
+        # ----- Handle Trade Entries -----
         if anomalies_array[i] and len(open_trades) < max_entries:
-            if k == 0:
+            if not open_trades:
+                # Initiate a new trade when no trade is open
                 if timestamp not in trade_entries:
                     trade_entries.add(timestamp)
-
                     trade_type = None
-                    scaled_price = scaled_prices[i]
-                    predicted_price = predicted_prices[i]
 
                     if check_entry_signal(
                         trade_type="buy",
                         current_rsi=current_rsi,
-                        scaled_price=scaled_price,
-                        predicted_price=predicted_price,
                         current_price=current_price,
                         current_ma_short=current_ma_short,
                         current_ma_long=current_ma_long,
@@ -494,12 +496,9 @@ def simulate_trading_std(
                         with_short=with_short,
                     ):
                         trade_type = "buy"
-
                     elif check_entry_signal(
                         trade_type="sell",
                         current_rsi=current_rsi,
-                        scaled_price=scaled_price,
-                        predicted_price=predicted_price,
                         current_price=current_price,
                         current_ma_short=current_ma_short,
                         current_ma_long=current_ma_long,
@@ -511,52 +510,37 @@ def simulate_trading_std(
 
                     if trade_type is not None:
                         trade_volume = capital / max_entries
-                        open_trades.append(
-                            {
-                                "type": trade_type,
-                                "volume": trade_volume,
-                                "entry_price": current_price,
-                                "entry_time": timestamp,
-                            }
+                        new_trade = Trade(
+                            trade_type=trade_type,
+                            volume=trade_volume,
+                            entry_price=current_price,
+                            entry_time=timestamp,
                         )
+                        open_trades.append(new_trade)
                         base_price = current_price
                         base_trade_type = trade_type
-                        k = 1
             else:
-                required_distance = k * num_std * local_std_exit
+                # Add additional trades if the price moves enough from the base price
+                required_distance = len(open_trades) * num_std * local_std
+                condition = (
+                    current_price >= base_price + required_distance
+                    if base_trade_type == "sell"
+                    else current_price <= base_price - required_distance
+                )
+                if condition and timestamp not in trade_entries:
+                    trade_entries.add(timestamp)
+                    trade_volume = capital / max_entries
+                    new_trade = Trade(
+                        trade_type=base_trade_type,
+                        volume=trade_volume,
+                        entry_price=current_price,
+                        entry_time=timestamp,
+                    )
+                    open_trades.append(new_trade)
 
-                if base_trade_type == "sell":
-                    condition = current_price >= base_price + required_distance
-                elif base_trade_type == "buy":
-                    condition = current_price <= base_price - required_distance
-                else:
-                    condition = False
-
-                if condition:
-                    if timestamp not in trade_entries:
-                        trade_entries.add(timestamp)
-                        trade_type = base_trade_type
-                        trade_volume = capital / max_entries
-                        open_trades.append(
-                            {
-                                "type": trade_type,
-                                "volume": trade_volume,
-                                "entry_price": current_price,
-                                "entry_time": timestamp,
-                            }
-                        )
-                        k += 1
-
-        # capital_history_array[i] = capital
         profit_array[i] = daily_profit
 
-    # capital_history = pd.Series(capital_history_array, index=price_data.index)
-    # capital_history.ffill(inplace=True)
-    # capital_history.fillna(capital, inplace=True)
-
-    profits = pd.Series(profit_array, index=price_data.index)
-    profits.fillna(0, inplace=True)
-
+    profits = pd.Series(profit_array, index=price_data.index).fillna(0)
     return profits, closed_trades
 
 
@@ -849,8 +833,8 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-file_path = "BTCUSDT.csv"
-preds_path = "results/"
+# file_path = "BTCUSDT.csv"
+# preds_path = "results/"
 
 
 sequence_length = 100
@@ -1162,8 +1146,8 @@ def calc_pl(data_dict, params):
     max_entries = params.get("max_entries", 5)
     plot_pl = params.get("plot_pl", False)
     distr_len = params.get("distr_len", 99)
-    Ma_window_short = params.get("Ma_window_short", 100)
-    Ma_window_long = params.get("Ma_window_long", 200)
+    ma_window_short = params.get("ma_window_short", 100)
+    ma_window_long = params.get("ma_window_long", 200)
     RSI_window_minutes = params.get("RSI_window_minutes", 500)
     window_size_minutes = params["window_size_minutes"]
     rsi_entry = (
@@ -1187,9 +1171,9 @@ def calc_pl(data_dict, params):
         predicted_prices = df["predicted_price"]
         rsi_data = calculate_rsi(df, window=RSI_window_minutes)
         ma_data_short = (
-            df["close"].rolling(window=Ma_window_short, min_periods=1).mean()
+            df["close"].rolling(window=ma_window_short, min_periods=1).mean()
         )
-        ma_data_long = df["close"].rolling(window=Ma_window_long, min_periods=1).mean()
+        ma_data_long = df["close"].rolling(window=ma_window_long, min_periods=1).mean()
         scores = df["scores"].values  # array
 
         rolling_anomalies = np.zeros_like(scores, dtype=bool)
@@ -1223,7 +1207,7 @@ def calc_pl(data_dict, params):
             rsi_entry=rsi_entry,
             rsi_exit=rsi_exit,
             print_trades=print_trades,
-            comission_rate=comission_rate,
+            commission_rate=comission_rate,
             with_short=with_short,
         )
 
@@ -1299,8 +1283,8 @@ def main():
         "exit_val": "ma",
         "max_entries": 10,
         "distr_len": 34,
-        "Ma_window_short": 89,
-        "Ma_window_long": 200,
+        "ma_window_short": 89,
+        "ma_window_long": 200,
         "window_size_minutes": 100,
         "RSI_window_minutes": 55,
         "rsi_entry": "30,70",
@@ -1340,8 +1324,8 @@ def main():
     }
 
     save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
-    save_path = "results/"
-    file_prefix = f"anomaly"
+    # save_path = "results/"
+    file_prefix = f"anomaly_"
 
     optimizer = ParameterOptimizer(
         calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=5
