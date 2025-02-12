@@ -261,6 +261,31 @@ def deviation_from_mean(data, value):
     return deviation
 
 
+def check_entry_signal(
+    trade_type,
+    current_rsi,
+    scaled_price,
+    predicted_price,
+    current_price,
+    current_ma_short,
+    current_ma_long,
+    rsi_entry,
+    exit_val,
+    with_short,
+):
+    if trade_type == "buy":
+        if exit_val == "rsi":
+            return current_rsi < rsi_entry[0] and predicted_price > scaled_price
+        elif exit_val == "ma":
+            return current_price < current_ma_long
+    elif trade_type == "sell" and with_short:
+        if exit_val == "rsi":
+            return current_rsi > rsi_entry[1] and predicted_price < scaled_price
+        elif exit_val == "ma":
+            return current_price > current_ma_short
+    return False
+
+
 def simulate_trading_std(
     model_name,
     price_data,
@@ -328,26 +353,20 @@ def simulate_trading_std(
         if open_trades:
             trades_to_close = []
 
-            opposite_signal = False
-            if base_trade_type == "buy":
-                if exit_val == "rsi":
-                    if (
-                        current_rsi > rsi_entry[1]
-                        and predicted_price < scaled_price
-                        and with_short
-                    ):
-                        opposite_signal = True
-                elif exit_val == "ma":
-                    if current_price > current_ma_short and with_short:
-                        opposite_signal = True
+            opposite_type = "sell" if base_trade_type == "buy" else "buy"
 
-            elif base_trade_type == "sell":
-                if exit_val == "rsi":
-                    if current_rsi < rsi_entry[0] and predicted_price > scaled_price:
-                        opposite_signal = True
-                elif exit_val == "ma":
-                    if current_price < current_ma_long:
-                        opposite_signal = True
+            opposite_signal = check_entry_signal(
+                trade_type=opposite_type,
+                current_rsi=current_rsi,
+                scaled_price=scaled_price,
+                predicted_price=predicted_price,
+                current_price=current_price,
+                current_ma_short=current_ma_short,
+                current_ma_long=current_ma_long,
+                rsi_entry=rsi_entry,
+                exit_val=exit_val,
+                with_short=with_short,
+            )
 
             if opposite_signal:
                 for trade in open_trades:
@@ -462,23 +481,33 @@ def simulate_trading_std(
                     scaled_price = scaled_prices[i]
                     predicted_price = predicted_prices[i]
 
-                    if exit_val == "rsi":
-                        if (
-                            current_rsi < rsi_entry[0]
-                            and predicted_price > scaled_price
-                        ):
-                            trade_type = "buy"
-                        elif (
-                            current_rsi > rsi_entry[1]
-                            and predicted_price < scaled_price
-                            and with_short
-                        ):
-                            trade_type = "sell"
-                    elif exit_val == "ma":
-                        if current_price > current_ma_long:
-                            trade_type = "buy"
-                        if current_price < current_ma_short and with_short:
-                            trade_type = "sell"
+                    if check_entry_signal(
+                        trade_type="buy",
+                        current_rsi=current_rsi,
+                        scaled_price=scaled_price,
+                        predicted_price=predicted_price,
+                        current_price=current_price,
+                        current_ma_short=current_ma_short,
+                        current_ma_long=current_ma_long,
+                        rsi_entry=rsi_entry,
+                        exit_val=exit_val,
+                        with_short=with_short,
+                    ):
+                        trade_type = "buy"
+
+                    elif check_entry_signal(
+                        trade_type="sell",
+                        current_rsi=current_rsi,
+                        scaled_price=scaled_price,
+                        predicted_price=predicted_price,
+                        current_price=current_price,
+                        current_ma_short=current_ma_short,
+                        current_ma_long=current_ma_long,
+                        rsi_entry=rsi_entry,
+                        exit_val=exit_val,
+                        with_short=with_short,
+                    ):
+                        trade_type = "sell"
 
                     if trade_type is not None:
                         trade_volume = capital / max_entries
