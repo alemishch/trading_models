@@ -381,6 +381,45 @@ def simulate_trading_std(
     base_price = None
     base_trade_type = None
 
+    def get_entry_signal(i: int) -> Optional[str]:
+        if not anomalies_array[i]:
+            return None
+
+        current_price = price_array[i]
+        current_rsi = rsi_array[i]
+        current_ma_short = ma_array_short[i]
+        current_ma_long = ma_array_long[i]
+        scaled_price = scaled_prices_array[i]
+        predicted_price = predicted_prices_array[i]
+
+        buy_signal = check_entry_signal(
+            trade_type="buy",
+            current_rsi=current_rsi,
+            current_price=current_price,
+            current_ma_short=current_ma_short,
+            current_ma_long=current_ma_long,
+            rsi_entry=rsi_entry,
+            exit_val=exit_val,
+            with_short=with_short,
+        )
+
+        sell_signal = (
+            check_entry_signal(
+                trade_type="sell",
+                current_rsi=current_rsi,
+                current_price=current_price,
+                current_ma_short=current_ma_short,
+                current_ma_long=current_ma_long,
+                rsi_entry=rsi_entry,
+                exit_val=exit_val,
+                with_short=with_short,
+            )
+            if with_short
+            else False
+        )
+
+        return "buy" if buy_signal else "sell" if sell_signal else None
+
     for i in range(n):
         timestamp = index_array[i]
         current_price = price_array[i]
@@ -478,56 +517,30 @@ def simulate_trading_std(
             ]
 
         # ----- Handle Trade Entries -----
-        if anomalies_array[i] and len(open_trades) < max_entries:
+        entry_signal = get_entry_signal(i)
+        if entry_signal and len(open_trades) < max_entries:
             if not open_trades:
-                # Initiate a new trade when no trade is open
                 if timestamp not in trade_entries:
                     trade_entries.add(timestamp)
-                    trade_type = None
-
-                    if check_entry_signal(
-                        trade_type="buy",
-                        current_rsi=current_rsi,
-                        current_price=current_price,
-                        current_ma_short=current_ma_short,
-                        current_ma_long=current_ma_long,
-                        rsi_entry=rsi_entry,
-                        exit_val=exit_val,
-                        with_short=with_short,
-                    ):
-                        trade_type = "buy"
-                    elif check_entry_signal(
-                        trade_type="sell",
-                        current_rsi=current_rsi,
-                        current_price=current_price,
-                        current_ma_short=current_ma_short,
-                        current_ma_long=current_ma_long,
-                        rsi_entry=rsi_entry,
-                        exit_val=exit_val,
-                        with_short=with_short,
-                    ):
-                        trade_type = "sell"
-
-                    if trade_type is not None:
-                        trade_volume = capital / max_entries
-                        new_trade = Trade(
-                            trade_type=trade_type,
-                            volume=trade_volume,
-                            entry_price=current_price,
-                            entry_time=timestamp,
-                        )
-                        open_trades.append(new_trade)
-                        base_price = current_price
-                        base_trade_type = trade_type
+                    trade_volume = capital / max_entries
+                    new_trade = Trade(
+                        trade_type=entry_signal,
+                        volume=trade_volume,
+                        entry_price=current_price,
+                        entry_time=timestamp,
+                    )
+                    open_trades.append(new_trade)
+                    base_price = current_price
+                    base_trade_type = entry_signal
             else:
-                # Add additional trades if the price moves enough from the base price
                 required_distance = len(open_trades) * num_std * local_std
-                condition = (
+                price_condition = (
                     current_price >= base_price + required_distance
                     if base_trade_type == "sell"
                     else current_price <= base_price - required_distance
                 )
-                if condition and timestamp not in trade_entries:
+
+                if price_condition and timestamp not in trade_entries:
                     trade_entries.add(timestamp)
                     trade_volume = capital / max_entries
                     new_trade = Trade(
@@ -833,8 +846,8 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-# file_path = "BTCUSDT.csv"
-# preds_path = "results/"
+file_path = "BTCUSDT.csv"
+preds_path = "results/"
 
 
 sequence_length = 100
@@ -1323,8 +1336,8 @@ def main():
         "with_short": [True, False],
     }
 
-    save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
-    # save_path = "results/"
+    # save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
+    save_path = "results/"
     file_prefix = f"anomaly_"
 
     optimizer = ParameterOptimizer(
