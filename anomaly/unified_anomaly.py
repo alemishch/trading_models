@@ -266,7 +266,8 @@ def simulate_trading_std(
     price_data,
     scaled_prices,
     predicted_prices,
-    ma_data,
+    ma_data_short,
+    ma_data_long,
     rsi_data,
     scores,
     rolling_anomalies,
@@ -279,9 +280,11 @@ def simulate_trading_std(
     rsi_exit=[60, 40],
     print_trades=False,
     comission_rate=0.0002,
+    with_short=True,
 ):
     price_array = price_data.to_numpy(dtype=np.float64)
-    ma_array = ma_data.to_numpy(dtype=np.float64)
+    ma_array_short = ma_data_short.to_numpy(dtype=np.float64)
+    ma_array_long = ma_data_long.to_numpy(dtype=np.float64)
     rsi_data = rsi_data.to_numpy(dtype=np.float64)
     scaled_prices = scaled_prices.to_numpy(dtype=np.float64)
     predicted_prices = predicted_prices.to_numpy(dtype=np.float64)
@@ -315,7 +318,8 @@ def simulate_trading_std(
     for i in range(n):
         timestamp = index_array[i]
         current_price = price_array[i]
-        current_ma = ma_array[i]
+        current_ma_short = ma_array_short[i]
+        current_ma_long = ma_array_long[i]
         current_rsi = rsi_data[i]
 
         local_std_exit = rolling_std[i]
@@ -323,6 +327,54 @@ def simulate_trading_std(
         daily_profit = 0.0
         if open_trades:
             trades_to_close = []
+
+            opposite_signal = False
+            if base_trade_type == "buy" and current_price > current_ma_short:
+                opposite_signal = True
+            elif base_trade_type == "sell" and current_price < current_ma_long:
+                opposite_signal = True
+
+            if opposite_signal:
+                for trade in open_trades:
+                    trade_type = trade["type"]
+                    entry_price = trade["entry_price"]
+                    exit_price = current_price
+                    trade_volume = trade["volume"]
+
+                    if trade_type == "buy":
+                        profit = (exit_price - entry_price) * (
+                            trade_volume / entry_price
+                        )
+                    else:
+                        profit = (entry_price - exit_price) * (
+                            trade_volume / entry_price
+                        )
+
+                    profit -= trade_volume * comission_rate
+                    capital += profit
+                    daily_profit += profit
+
+                    if print_trades:
+                        print(
+                            f"Trade flipped: {trade_type} at {trade['entry_time']} "
+                            f"(Entry Price: {entry_price:.2f}), exited at {timestamp} "
+                            f"(Exit Price: {exit_price:.2f}), Volume: {trade_volume:.4f}, "
+                            f"P&L: {profit:.4f}"
+                        )
+
+                    closed_trades.append(
+                        {
+                            "type": trade_type,
+                            "entry_time": trade["entry_time"],
+                            "entry_price": entry_price,
+                            "exit_time": timestamp,
+                            "exit_price": exit_price,
+                            "profit": profit,
+                        }
+                    )
+
+                open_trades = []
+                k = 0
 
             for trade in open_trades:
                 trade_type = trade["type"]
@@ -334,9 +386,9 @@ def simulate_trading_std(
                     ):
                         trades_to_close.append(trade)
                         continue
-                if exit_val == "ma":
-                    if (trade_type == "buy" and current_price >= current_ma) or (
-                        trade_type == "sell" and current_price <= current_ma
+                elif exit_val == "ma":
+                    if (trade_type == "buy" and current_price >= current_ma_long) or (
+                        trade_type == "sell" and current_price <= current_ma_short
                     ):
                         trades_to_close.append(trade)
                         continue
@@ -404,12 +456,13 @@ def simulate_trading_std(
                         elif (
                             current_rsi > rsi_entry[1]
                             and predicted_price < scaled_price
+                            and with_short
                         ):
                             trade_type = "sell"
                     elif exit_val == "ma":
-                        # if current_price > current_ma:
-                        #     trade_type = "sell"
-                        if current_price < current_ma:
+                        if current_price > current_ma_long:
+                            trade_type = "sell"
+                        if current_price < current_ma_short and with_short:
                             trade_type = "buy"
 
                     if trade_type is not None:
@@ -752,6 +805,10 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
+file_path = "BTCUSDT.csv"
+preds_path = "results/"
+
+
 sequence_length = 100
 start_date = pd.Timestamp("2020-01-01 00:00:00")
 end_date = pd.Timestamp("2021-12-31 23:59:00")
@@ -1061,7 +1118,8 @@ def calc_pl(data_dict, params):
     max_entries = params.get("max_entries", 5)
     plot_pl = params.get("plot_pl", False)
     distr_len = params.get("distr_len", 99)
-    Ma_window_minutes = params.get("Ma_window_minutes", 500)
+    Ma_window_short = params.get("Ma_window_short", 100)
+    Ma_window_long = params.get("Ma_window_long", 200)
     RSI_window_minutes = params.get("RSI_window_minutes", 500)
     window_size_minutes = params["window_size_minutes"]
     rsi_entry = (
@@ -1075,6 +1133,7 @@ def calc_pl(data_dict, params):
     max_entries = params.get("max_entries", 5)
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
+    with_short = params.get("with_short", True)
 
     for ticker, df in data_dict.items():
         if print_trades:
@@ -1083,7 +1142,10 @@ def calc_pl(data_dict, params):
         scaled_prices = df["scaled_price"]
         predicted_prices = df["predicted_price"]
         rsi_data = calculate_rsi(df, window=RSI_window_minutes)
-        ma_data = df["close"].rolling(window=Ma_window_minutes, min_periods=1).mean()
+        ma_data_short = (
+            df["close"].rolling(window=Ma_window_short, min_periods=1).mean()
+        )
+        ma_data_long = df["close"].rolling(window=Ma_window_long, min_periods=1).mean()
         scores = df["scores"].values  # array
 
         rolling_anomalies = np.zeros_like(scores, dtype=bool)
@@ -1104,7 +1166,8 @@ def calc_pl(data_dict, params):
             price_data=price_data,
             scaled_prices=scaled_prices,
             predicted_prices=predicted_prices,
-            ma_data=ma_data,
+            ma_data_short=ma_data_short,
+            ma_data_long=ma_data_long,
             rsi_data=rsi_data,
             scores=scores,
             rolling_anomalies=rolling_anomalies,
@@ -1117,6 +1180,7 @@ def calc_pl(data_dict, params):
             rsi_exit=rsi_exit,
             print_trades=print_trades,
             comission_rate=comission_rate,
+            with_short=with_short,
         )
 
         if plot_pl:
@@ -1191,7 +1255,8 @@ def main():
         "exit_val": "ma",
         "max_entries": 10,
         "distr_len": 34,
-        "Ma_window_minutes": 200,
+        "Ma_window_short": 89,
+        "Ma_window_long": 200,
         "window_size_minutes": 100,
         "RSI_window_minutes": 55,
         "rsi_entry": "30,70",
@@ -1199,6 +1264,7 @@ def main():
         "plot_pl": True,
         "print_trades": True,
         "comission_rate": 0.0002,
+        "with_short": True,
     }
 
     # start_date = "2021-06-01"
@@ -1219,15 +1285,18 @@ def main():
         "plot_pl": False,
         "distr_len": [34, 144],
         "RSI_window_minutes": [55, 89],
-        "Ma_window_minutes": [34, 89, 200, 500],
+        "Ma_window_short": [34, 89],
+        "Ma_window_long": [200, 500],
         "window_size_minutes": [100, 1000, 5000],
         "rsi_entry": ["30,70", "40,60"],
         "rsi_exit": ["30,70", "40,60", "50,50"],
         "print_trades": False,
         "comission_rate": 0.0002,
+        "with_short": [True, False],
     }
 
     save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
+    save_path = "results/"
     file_prefix = f"anomaly"
 
     optimizer = ParameterOptimizer(
