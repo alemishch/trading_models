@@ -916,6 +916,16 @@ train_initial_length = pd.DateOffset(months=6)
 train_expand_step = pd.DateOffset(months=3)
 test_length = pd.DateOffset(months=3)
 
+window_size = 1000  # or whatever your desired rolling window is
+
+data["rolling_min"] = data["close"].rolling(window=window_size, min_periods=1).min()
+data["rolling_max"] = data["close"].rolling(window=window_size, min_periods=1).max()
+
+data["scaled_price"] = (data["close"] - data["rolling_min"]) / (
+    data["rolling_max"] - data["rolling_min"]
+)
+data["scaled_price"].fillna(method="bfill", inplace=True)
+data = data.drop(columns=["rolling_min", "rolling_max"])
 
 combined_test_dates = []
 combined_scores = {}
@@ -950,9 +960,8 @@ while current_test_end <= end_date or current_test_start < end_date:
     if test_data.empty:
         break
 
-    scaler = StandardScaler()
-    train_scaled = scaler.fit_transform(train_data[["close"]])
-    test_scaled = scaler.transform(test_data[["close"]])
+    train_scaled = train_data["scaled_price"].to_numpy().reshape(-1, 1)
+    test_scaled = test_data["scaled_price"].to_numpy().reshape(-1, 1)
 
     original_prices_buffer.extend(test_data["close"].values[sequence_length:])
     scaled_prices.extend(test_scaled[sequence_length:, 0])
@@ -1232,7 +1241,7 @@ def calc_pl(data_dict, params):
         results_dict[ticker] = daily_rets
 
     combined_returns = pd.concat(results_dict.values(), axis=1).sum(axis=1)
-    return combined_returns, closed_trades, rolling_anomalies  #######
+    return combined_returns  # , closed_trades, rolling_anomalies  #######
 
 
 def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365):
@@ -1307,9 +1316,9 @@ def main():
 
     # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
 
-    results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
 
-    print(calculate_sharpe_ratio(results))
+    # print(calculate_sharpe_ratio(results))
 
     params = {
         "num_std": [1, 2, 3],
@@ -1347,7 +1356,7 @@ def main():
     #     n_splits=3,
     #     n_test_splits=1,
     # )
-    # optimizer.plot_returns(data_dict, best_params)
+    optimizer.plot_returns(data_dict, best_params)
 
 
 if __name__ == "__main__":
