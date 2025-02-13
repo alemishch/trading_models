@@ -1251,7 +1251,11 @@ def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365
 def main():
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_scores_3m_20202021full.npy"):
-            Cos
+            model_name = filename.replace("_combined_scores_3m_20202021full.npy", "")
+            combined_scores[model_name] = np.load(
+                preds_path + filename, allow_pickle=True
+            )
+            print(f"Loaded combined_scores for {model_name} from {filename}")
 
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_preds_3m.npy"):
