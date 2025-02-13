@@ -1268,8 +1268,8 @@ def main():
             print(f"Loaded combined_scores for {model_name} from {filename}")
 
     for filename in os.listdir(preds_path):
-        if filename.endswith("_combined_preds_3m_20202024full.npy.npy"):
-            model_name = filename.replace("_combined_preds_3m_20202024full.npy", "")
+        if filename.endswith("_combined_preds_3m_20202024.npy"):
+            model_name = filename.replace("_combined_preds_3m_20202024.npy", "")
             combined_predictions[model_name] = np.load(
                 preds_path + filename, allow_pickle=True
             )
