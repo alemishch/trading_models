@@ -381,16 +381,9 @@ def simulate_trading_std(
     base_price = None
     base_trade_type = None
 
-    def get_entry_signal(i: int) -> Optional[str]:
-        if not anomalies_array[i]:
+    def get_entry_signal() -> Optional[str]:
+        if not is_anomaly:
             return None
-
-        current_price = price_array[i]
-        current_rsi = rsi_array[i]
-        current_ma_short = ma_array_short[i]
-        current_ma_long = ma_array_long[i]
-        scaled_price = scaled_prices_array[i]
-        predicted_price = predicted_prices_array[i]
 
         buy_signal = check_entry_signal(
             trade_type="buy",
@@ -427,6 +420,7 @@ def simulate_trading_std(
         current_ma_long = ma_array_long[i]
         current_rsi = rsi_array[i]
         local_std = rolling_std[i]
+        is_anomaly = anomalies_array[i]
         daily_profit = 0.0
 
         # ----- Handle Trade Exits -----
@@ -434,7 +428,7 @@ def simulate_trading_std(
             # Check for a trade flip (opening an opposite position)
             opposite_trade_type = "sell" if base_trade_type == "buy" else "buy"
 
-            flip_signal = get_entry_signal(i) == opposite_trade_type
+            flip_signal = get_entry_signal() == opposite_trade_type
 
             if flip_signal:
                 for trade in open_trades:
@@ -449,7 +443,7 @@ def simulate_trading_std(
                         print(
                             f"Trade flipped: {trade.trade_type} entered at {trade.entry_time} "
                             f"(Entry Price: {trade.entry_price:.2f}), exited at {timestamp} "
-                            f"(Exit Price: {current_price:.2f}), Volume: {trade.volume:.4f}, "
+                            f"(Exit Price: {current_price:.2f}, {current_ma_long=:1f}, {current_ma_short=:1f}), Volume: {trade.volume:.4f}, "
                             f"P&L: {trade.profit:.4f}"
                         )
                     closed_trades.append(trade)
@@ -511,7 +505,7 @@ def simulate_trading_std(
             ]
 
         # ----- Handle Trade Entries -----
-        entry_signal = get_entry_signal(i)
+        entry_signal = get_entry_signal()
         if entry_signal and len(open_trades) < max_entries:
             if not open_trades:
                 if timestamp not in trade_entries:
@@ -527,7 +521,7 @@ def simulate_trading_std(
                     base_price = current_price
                     base_trade_type = entry_signal
             else:
-                required_distance = len(open_trades) * num_std * local_std
+                required_distance = num_std * local_std
                 price_condition = (
                     current_price >= base_price + required_distance
                     if base_trade_type == "sell"
@@ -544,6 +538,7 @@ def simulate_trading_std(
                         entry_time=timestamp,
                     )
                     open_trades.append(new_trade)
+                    base_price = current_price
 
         profit_array[i] = daily_profit
 
@@ -840,8 +835,8 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-file_path = "BTCUSDT.csv"
-preds_path = "results/"
+# file_path = "BTCUSDT.csv"
+# preds_path = "results/"
 
 
 sequence_length = 100
@@ -1159,7 +1154,6 @@ def calc_pl(data_dict, params):
     num_std_exit = params.get("num_std_exit", 1)
     percentile = params.get("percentile", 99.5)
     exit_val = params.get("exit_val", "rsi")
-    max_entries = params.get("max_entries", 5)
     plot_pl = params.get("plot_pl", False)
     distr_len = params.get("distr_len", 99)
     ma_window_short = params.get("ma_window_short", 100)
@@ -1241,7 +1235,8 @@ def calc_pl(data_dict, params):
         results_dict[ticker] = daily_rets
 
     combined_returns = pd.concat(results_dict.values(), axis=1).sum(axis=1)
-    return combined_returns  # , closed_trades, rolling_anomalies  #######
+
+    return combined_returns
 
 
 def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365):
@@ -1295,20 +1290,20 @@ def main():
     best_params = {
         "num_std": 3,
         "num_std_exit": 3,
-        "percentile": 95,
-        "exit_val": "ma",
-        "max_entries": 10,
-        "distr_len": 34,
-        "ma_window_short": 89,
+        "percentile": 5,
+        "exit_val": "rsi",
+        "max_entries": 5,
+        "distr_len": 144,
+        "ma_window_short": 34,
         "ma_window_long": 200,
         "window_size_minutes": 100,
         "RSI_window_minutes": 55,
-        "rsi_entry": "30,70",
-        "rsi_exit": "30,70",
+        "rsi_entry": "40,60",
+        "rsi_exit": "50,50",
         "plot_pl": True,
         "print_trades": True,
-        "comission_rate": 0.0002,
-        "with_short": True,
+        "comission_rate": 0.0004,
+        "with_short": False,
     }
 
     # start_date = "2021-06-01"
@@ -1317,8 +1312,6 @@ def main():
     # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
 
     # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
-
-    # print(calculate_sharpe_ratio(results))
 
     params = {
         "num_std": [1, 2, 3],
@@ -1329,25 +1322,25 @@ def main():
         "plot_pl": False,
         "distr_len": [34, 144],
         "RSI_window_minutes": [55, 89],
-        "Ma_window_short": [34, 89],
-        "Ma_window_long": [200, 500],
+        "Ma_window_short": [13, 34, 89],
+        "Ma_window_long": [55, 100, 200, 500],
         "window_size_minutes": [100, 1000, 5000],
         "rsi_entry": ["30,70", "40,60"],
         "rsi_exit": ["30,70", "40,60", "50,50"],
         "print_trades": False,
-        "comission_rate": 0.0002,
+        "comission_rate": 0.0004,
         "with_short": [True, False],
     }
 
-    # save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
-    save_path = "results/"
+    save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
+    # save_path = "results/"
     file_prefix = f"anomaly_"
 
     optimizer = ParameterOptimizer(
-        calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=5
+        calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=10
     )
 
-    # optimizer.split_data(data_dict, "2021-06-01")
+    # optimizer.split_data(data_dict, "2022-06-01")
     # optimizer.optimize(
     #     data_dict=data_dict,
     #     params=params,
@@ -1356,6 +1349,7 @@ def main():
     #     n_splits=3,
     #     n_test_splits=1,
     # )
+
     optimizer.plot_returns(data_dict, best_params)
 
 
