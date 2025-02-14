@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from dtaidistance import dtw
+import numpy as np
+from tqdm import tqdm
+import copy
 
 
 def create_sequences(data_tensor, seq_length):
@@ -431,6 +434,11 @@ class AnomalyDetector:
         batch_size=32,
         learning_rate=1e-3,
         train_raw=None,
+        validation_sequences=None,
+        early_stopping_patience=None,
+        reduce_lr_patience=None,
+        reduce_lr_factor=0.1,
+        min_lr=1e-6,
     ):
         if self.model_name == "egads":
             if train_raw is None:
@@ -452,7 +460,23 @@ class AnomalyDetector:
         )
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
+        scheduler = None
+        if reduce_lr_patience is not None:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode="min",
+                factor=reduce_lr_factor,
+                patience=reduce_lr_patience,
+                min_lr=min_lr,
+            )
+
+        best_val_loss = float("inf")
+        epochs_no_improve = 0
+        early_stop = False
+        best_model_weights = None
+
         self.model.train()
+        running_loss = 0.0
         for epoch in tqdm(range(num_epochs), desc=f"Training {self.model_name}"):
             running_loss = 0.0
             for batch in train_loader:
@@ -506,6 +530,71 @@ class AnomalyDetector:
 
             epoch_loss = running_loss / len(train_loader)
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.6f}")
+
+            val_loss = 0.0
+            if validation_sequences is not None:
+                val_loader = torch.utils.data.DataLoader(
+                    validation_sequences, batch_size=batch_size, shuffle=False
+                )
+                self.model.eval()
+                with torch.no_grad():
+                    for batch in val_loader:
+                        batch = batch.to(self.device)
+                        if self.model_name in ["stackvaeg", "omnianomaly"]:
+                            if self.model_name == "stackvaeg":
+                                outputs, mu, logvar = self.model(batch)
+                                batch_flat = batch.view(batch.size(0), -1)
+                                recon_loss = nn.MSELoss()(outputs, batch_flat)
+                            else:
+                                reconstructed, mu, logvar = self.model(batch)
+                                recon_loss = nn.MSELoss()(reconstructed, batch)
+                            # KLD
+                            kld = -0.5 * torch.mean(
+                                1 + logvar - mu.pow(2) - logvar.exp()
+                            )
+                            loss = recon_loss + kld * 0.001
+                        else:
+                            outputs = self.model(batch)
+                            if self.model_name == "cnn":
+                                loss = nn.MSELoss()(outputs, batch.view_as(outputs))
+                            elif self.model_name == "kan":
+                                target = batch[:, -1, 0]
+                                loss = nn.MSELoss()(outputs, target)
+                            elif self.model_name == "lstm":
+                                loss = nn.MSELoss()(outputs, batch)
+                            elif self.model_name == "cnnautoencoder":
+                                loss = nn.MSELoss()(outputs, batch)
+                            else:
+                                loss = nn.MSELoss()(outputs, batch.view(outputs.size()))
+                        val_loss += loss.item()
+                val_loss /= len(val_loader)
+                print(f"Validation Loss: {val_loss:.6f}")
+
+            if scheduler:
+                monitored_loss = (
+                    val_loss if validation_sequences is not None else epoch_loss
+                )
+                scheduler.step(monitored_loss)
+
+            if early_stopping_patience is not None:
+                current_loss = (
+                    val_loss if validation_sequences is not None else epoch_loss
+                )
+                if current_loss < best_val_loss:
+                    best_val_loss = current_loss
+                    epochs_no_improve = 0
+                    best_model_weights = copy.deepcopy(self.model.state_dict())
+                else:
+                    epochs_no_improve += 1
+                    if epochs_no_improve >= early_stopping_patience:
+                        print(f"Early stopping triggered at epoch {epoch+1}")
+                        early_stop = True
+            if early_stop:
+                break
+
+        if early_stopping_patience is not None and best_model_weights is not None:
+            self.model.load_state_dict(best_model_weights)
+            print("Restored best model weights.")
 
     def predict(self, test_sequences=None, test_raw=None):
         if self.model_name == "egads":
