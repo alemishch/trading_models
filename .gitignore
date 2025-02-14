@@ -2,3 +2,8 @@ BTCUSDT.csv
 trash
 .ipynb*
 .goutput*
+/anomaly/results/anomaly_total_returns.png
+/anomaly/results/anomaly__test_data/BTCUSDT.parquet
+/anomaly/results/anomaly__train_data/BTCUSDT.parquet
+/anomaly/results/anomaly_test_data/BTCUSDT.parquet
+/anomaly/results/anomaly_train_data/BTCUSDT.parquet
