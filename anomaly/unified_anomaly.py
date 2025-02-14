@@ -835,13 +835,13 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-# file_path = "BTCUSDT.csv"
-# preds_path = "results/"
+file_path = "BTCUSDT.csv"
+preds_path = "results/"
 
 
 sequence_length = 100
 start_date = pd.Timestamp("2020-01-01 00:00:00")
-end_date = pd.Timestamp("2021-12-31 23:59:00")
+end_date = pd.Timestamp("2024-12-20 23:59:00")
 # window_days = 55
 window_minutes = 500  # for rolling mean
 exit_val = "ma"
@@ -911,7 +911,7 @@ train_initial_length = pd.DateOffset(months=6)
 train_expand_step = pd.DateOffset(months=3)
 test_length = pd.DateOffset(months=3)
 
-window_size = 1000  # or whatever your desired rolling window is
+window_size = 10000
 
 data["rolling_min"] = data["close"].rolling(window=window_size, min_periods=1).min()
 data["rolling_max"] = data["close"].rolling(window=window_size, min_periods=1).max()
@@ -1260,20 +1260,22 @@ def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365
 
 def main():
     for filename in os.listdir(preds_path):
-        if filename.endswith("_combined_scores_3m_20202021full.npy"):
-            model_name = filename.replace("_combined_scores_3m_20202021full.npy", "")
+        if filename.endswith("_combined_scores_3m_20202024full.npy"):
+            model_name = filename.replace("_combined_scores_3m_20202024full.npy", "")
             combined_scores[model_name] = np.load(
                 preds_path + filename, allow_pickle=True
             )
             print(f"Loaded combined_scores for {model_name} from {filename}")
 
     for filename in os.listdir(preds_path):
-        if filename.endswith("_combined_preds_3m.npy"):
-            model_name = filename.replace("_combined_preds_3m.npy", "")
+        if filename.endswith("_combined_preds_3m_20202024.npy"):
+            model_name = filename.replace("_combined_preds_3m_20202024.npy", "")
             combined_predictions[model_name] = np.load(
                 preds_path + filename, allow_pickle=True
             )
             print(f"Loaded combined_predictions for {model_name} from {filename}")
+
+    model_name = "kan"
 
     dates = pd.to_datetime(combined_test_dates)
     df = pd.DataFrame(index=dates)
@@ -1281,9 +1283,9 @@ def main():
 
     df["close"] = original_prices_buffer
     df["scaled_price"] = scaled_prices
-    df["scores"] = combined_scores["kan"]
+    df["scores"] = combined_scores[model_name]
 
-    df["predicted_price"] = combined_predictions["kan"]
+    df["predicted_price"] = combined_predictions[model_name]
 
     data_dict = {"BTCUSDT": df}
 
