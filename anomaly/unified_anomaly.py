@@ -952,19 +952,26 @@ while current_test_end <= end_date or current_test_start < end_date:
     train_data = data.loc[current_train_start:current_train_end]
     test_data = data.loc[current_test_start:current_test_end]
 
+    validation_start = current_train_end - pd.Timedelta(days=30)
+    validation_data = train_data.loc[validation_start:current_train_end]
+    train_data = train_data.loc[:validation_start]
+
     if test_data.empty:
         break
 
     train_scaled = train_data["scaled_price"].to_numpy().reshape(-1, 1)
+    validation_scaled = validation_data["scaled_price"].to_numpy().reshape(-1, 1)
     test_scaled = test_data["scaled_price"].to_numpy().reshape(-1, 1)
 
     original_prices_buffer.extend(test_data["close"].values[sequence_length:])
     scaled_prices.extend(test_scaled[sequence_length:, 0])
 
     train_torch = torch.tensor(train_scaled, dtype=torch.float32)
+    validation_torch = torch.tensor(validation_scaled, dtype=torch.float32)
     test_torch = torch.tensor(test_scaled, dtype=torch.float32)
 
     train_sequences = create_sequences(train_torch, sequence_length)
+    validation_sequences = create_sequences(validation_torch, sequence_length)
     test_sequences = create_sequences(test_torch, sequence_length)
     test_dates = test_data.index[sequence_length:]
     combined_test_dates.extend(test_dates)
@@ -977,7 +984,7 @@ while current_test_end <= end_date or current_test_start < end_date:
         #     model_name=model_name,
         #     model_params=params,
         #     sequence_length=sequence_length,
-        #     device=device
+        #     device=device,
         # )
 
         # if model_name not in ['egads', 'dtw']:
@@ -985,7 +992,10 @@ while current_test_end <= end_date or current_test_start < end_date:
         #         train_sequences=train_sequences,
         #         num_epochs=10,
         #         batch_size=32,
-        #         learning_rate=1e-3
+        #         learning_rate=1e-3,
+        #         validation_sequences=validation_sequences,
+        #         early_stopping_patience=5,
+        #         reduce_lr_patience=3,
         #     )
 
         # torch.save(
