@@ -1165,11 +1165,12 @@ def calc_pl(data_dict, params):
     percentile = params.get("percentile", 99.5)
     exit_val = params.get("exit_val", "rsi")
     plot_pl = params.get("plot_pl", False)
-    distr_len = int(params.get("distr_len", 99))
-    ma_window_short = int(params.get("ma_window_short", 100))
-    ma_window_long = int(params.get("ma_window_long", 200))
-    RSI_window_minutes = int(params.get("RSI_window_minutes", 500))
-    window_size_minutes = int(params["window_size_minutes"])
+    distr_len = params.get("distr_len", 99)
+    ma_window_short = params.get("ma_window_short", 100)
+    ma_window_long = params.get("ma_window_long", 200)
+    RSI_window_minutes = params.get("RSI_window_minutes", 500)
+    window_size_minutes = params["window_size_minutes"]
+    multiplier = params["multiplier"]
     rsi_entry = (
         int(params["rsi_entry"].split(",")[0]),
         int(params["rsi_entry"].split(",")[1]),
@@ -1178,11 +1179,10 @@ def calc_pl(data_dict, params):
         int(params["rsi_exit"].split(",")[0]),
         int(params["rsi_exit"].split(",")[1]),
     )
-    max_entries = int(params.get("max_entries", 5))
+    max_entries = params.get("max_entries", 5)
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
     with_short = params.get("with_short", True)
-    ignore_anomalies = params.get("ignore_anomalies", False)
 
     for ticker, df in data_dict.items():
         if print_trades:
@@ -1197,24 +1197,33 @@ def calc_pl(data_dict, params):
         ma_data_long = df["close"].rolling(window=ma_window_long, min_periods=1).mean()
         scores = df["scores"].values  # array
 
-        if not ignore_anomalies:
-            rolling_anomalies = np.zeros_like(scores, dtype=bool)
+        # rolling_anomalies = np.zeros_like(scores, dtype=bool)
 
-            for i in range(window_size_minutes, len(scores)):
-                start_idx = i - window_size_minutes
-                end_idx = i
-                window_slice = scores[start_idx:end_idx]
-                current_score = scores[i]
+        # for i in range(window_size_minutes, len(scores)):
+        #     start_idx = i - window_size_minutes
+        #     end_idx = i
+        #     window_slice = scores[start_idx:end_idx]
+        #     current_score = scores[i]
 
-                rank = percentileofscore(window_slice, current_score, kind="rank")
-                if rank >= percentile:
-                    rolling_anomalies[i] = True
-        else:
-            rolling_anomalies = np.ones(len(scores), dtype=bool)
+        #     rank = percentileofscore(window_slice, current_score, kind="rank")
+        #     if rank >= percentile:
+        #         rolling_anomalies[i] = True
+
+        rolling_anomalies = detect_multi_scale_anomalies(
+            scores=scores,
+            window_sizes=[
+                window_size_minutes // 2,
+                window_size_minutes,
+                window_size_minutes * 2,
+                window_size_minutes * 3,
+            ],
+            multiplier=multiplier,
+        )
+
         if print_trades:
             print(rolling_anomalies.sum())
         profits, closed_trades = simulate_trading_std(
-            model_name="kan",
+            model_name="autoencoder",
             price_data=price_data,
             scaled_prices=scaled_prices,
             predicted_prices=predicted_prices,
@@ -1272,6 +1281,28 @@ def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365
     return sharpe_ratio
 
 
+def detect_multi_scale_anomalies(
+    scores: np.ndarray, window_sizes: list = [500, 1000, 5000], multiplier: float = 3.0
+):
+    anomalies = np.zeros_like(scores, dtype=bool)
+    for window_size in window_sizes:
+        rolling_mean = (
+            pd.Series(scores)
+            .rolling(window=window_size, min_periods=1)
+            .mean()
+            .to_numpy()
+        )
+        rolling_std = (
+            pd.Series(scores)
+            .rolling(window=window_size, min_periods=1)
+            .std()
+            .to_numpy()
+        )
+        threshold = rolling_mean + multiplier * rolling_std
+        anomalies |= scores > threshold
+    return anomalies
+
+
 def main():
     arrs = np.load("results/data_2024.npz", allow_pickle=True)
 
@@ -1279,7 +1310,7 @@ def main():
     scaled_prices = arrs["scaled_prices"]
     original_prices_buffer = arrs["original_prices_buffer"]
 
-    ignore_anomalies = True
+    ignore_anomalies = False
 
     if not ignore_anomalies:
         for filename in os.listdir(preds_path):
@@ -1308,53 +1339,47 @@ def main():
 
     df["close"] = original_prices_buffer
     df["scaled_price"] = scaled_prices
+    df["scores"] = np.minimum(combined_scores["kan"], combined_scores["autoencoder"])
     df["predicted_price"] = combined_predictions[model_name]
-
-    if not ignore_anomalies:
-        df["scores"] = combined_scores[model_name]
-
-    else:
-        df["scores"] = np.zeros_like(combined_test_dates)
 
     data_dict = {"BTCUSDT": df}
 
     best_params = {
-        "num_std": 1.0,
+        "num_std": 3,
         "num_std_exit": 3,
-        "percentile": 1,
+        "percentile": 5,
         "exit_val": "rsi",
         "max_entries": 5,
-        "distr_len": 130,
-        "RSI_window_minutes": 89.0,
-        "Ma_window_short": 61.5,
-        "Ma_window_long": 187.5,
-        "window_size_minutes": 2662.5,
-        "rsi_entry": "30,70",
-        "rsi_exit": "30,70",
-        "with_short": True,
-        "plot_pl": False,
+        "distr_len": 144,
+        "ma_window_short": 34,
+        "ma_window_long": 200,
+        "window_size_minutes": 100,
+        "RSI_window_minutes": 55,
+        "rsi_entry": "40,60",
+        "rsi_exit": "50,50",
+        "plot_pl": True,
         "print_trades": True,
         "comission_rate": 0.0004,
-        "sharpe": 2.4303645886258254,
-        "ignore_anomalies": ignore_anomalies,
+        "with_short": False,
+        "multiplier": 2.0,
     }
 
-    start_date = "2021-06-01"
-    end_date = "2021-12-31"
+    # start_date = "2021-06-01"
+    # end_date = "2021-12-31"
 
-    data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
+    # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
 
-    results = calc_pl(data_dict, best_params)
+    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
 
     params = {
         "num_std": [1, 2, 3],
         "num_std_exit": [1, 2, 3],
-        "percentile": [5, 10, 50, 75, 95, 99],
+        "percentile": [75, 90, 95, 99],
         "exit_val": ["rsi", "ma"],  # or "ma"
         "max_entries": [5, 10, 20],
         "plot_pl": False,
         "distr_len": [34, 144],
-        "RSI_window_minutes": [21, 55, 89],
+        "RSI_window_minutes": [55, 89],
         "Ma_window_short": [13, 34, 89],
         "Ma_window_long": [55, 100, 200, 500],
         "window_size_minutes": [100, 1000, 5000],
@@ -1363,7 +1388,7 @@ def main():
         "print_trades": False,
         "comission_rate": 0.0004,
         "with_short": [True, False],
-        "ignore_anomalies": [True, False],
+        "multiplier": [1.8, 2.0, 2.2],
     }
 
     save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
@@ -1385,9 +1410,9 @@ def main():
     # )
     # optimizer.read_saved_params()
     # best_params = optimizer.cluster_and_aggregate(1)
-    data_dict = optimizer.load_data_from_parquet("train")
-    optimizer.plot_returns(data_dict, best_params)
-    data_dict = optimizer.load_data_from_parquet("test")
+    # data_dict = optimizer.load_data_from_parquet("train")
+    # optimizer.plot_returns(data_dict, best_params)
+    # data_dict = optimizer.load_data_from_parquet("test")
     optimizer.plot_returns(data_dict, best_params)
 
 
