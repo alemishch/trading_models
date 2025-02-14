@@ -835,8 +835,8 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-file_path = "BTCUSDT.csv"
-preds_path = "results/"
+# file_path = "BTCUSDT.csv"
+# preds_path = "results/"
 
 
 sequence_length = 100
@@ -1155,11 +1155,11 @@ def calc_pl(data_dict, params):
     percentile = params.get("percentile", 99.5)
     exit_val = params.get("exit_val", "rsi")
     plot_pl = params.get("plot_pl", False)
-    distr_len = params.get("distr_len", 99)
-    ma_window_short = params.get("ma_window_short", 100)
-    ma_window_long = params.get("ma_window_long", 200)
-    RSI_window_minutes = params.get("RSI_window_minutes", 500)
-    window_size_minutes = params["window_size_minutes"]
+    distr_len = int(params.get("distr_len", 99))
+    ma_window_short = int(params.get("ma_window_short", 100))
+    ma_window_long = int(params.get("ma_window_long", 200))
+    RSI_window_minutes = int(params.get("RSI_window_minutes", 500))
+    window_size_minutes = int(params["window_size_minutes"])
     rsi_entry = (
         int(params["rsi_entry"].split(",")[0]),
         int(params["rsi_entry"].split(",")[1]),
@@ -1168,7 +1168,7 @@ def calc_pl(data_dict, params):
         int(params["rsi_exit"].split(",")[0]),
         int(params["rsi_exit"].split(",")[1]),
     )
-    max_entries = params.get("max_entries", 5)
+    max_entries = int(params.get("max_entries", 5))
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
     with_short = params.get("with_short", True)
@@ -1290,22 +1290,23 @@ def main():
     data_dict = {"BTCUSDT": df}
 
     best_params = {
-        "num_std": 3,
+        "num_std": 1.0,
         "num_std_exit": 3,
-        "percentile": 5,
+        "percentile": 1,
         "exit_val": "rsi",
         "max_entries": 5,
-        "distr_len": 144,
-        "ma_window_short": 34,
-        "ma_window_long": 200,
-        "window_size_minutes": 100,
-        "RSI_window_minutes": 55,
-        "rsi_entry": "40,60",
-        "rsi_exit": "50,50",
-        "plot_pl": True,
+        "distr_len": 130,
+        "RSI_window_minutes": 89.0,
+        "Ma_window_short": 61.5,
+        "Ma_window_long": 187.5,
+        "window_size_minutes": 2662.5,
+        "rsi_entry": "30,70",
+        "rsi_exit": "30,70",
+        "with_short": True,
+        "plot_pl": False,
         "print_trades": True,
         "comission_rate": 0.0004,
-        "with_short": False,
+        "sharpe": 2.4303645886258254,
     }
 
     # start_date = "2021-06-01"
@@ -1318,12 +1319,12 @@ def main():
     params = {
         "num_std": [1, 2, 3],
         "num_std_exit": [1, 2, 3],
-        "percentile": [75, 90, 95, 99],
+        "percentile": [5, 10, 50, 75, 95, 99],
         "exit_val": ["rsi", "ma"],  # or "ma"
         "max_entries": [5, 10, 20],
         "plot_pl": False,
         "distr_len": [34, 144],
-        "RSI_window_minutes": [55, 89],
+        "RSI_window_minutes": [21, 55, 89],
         "Ma_window_short": [13, 34, 89],
         "Ma_window_long": [55, 100, 200, 500],
         "window_size_minutes": [100, 1000, 5000],
@@ -1342,16 +1343,20 @@ def main():
         calc_pl, save_path=save_path, save_file_prefix=file_prefix, n_jobs=10
     )
 
-    # optimizer.split_data(data_dict, "2022-06-01")
+    # optimizer.split_data(data_dict, "2024-01-01")
     # optimizer.optimize(
     #     data_dict=data_dict,
     #     params=params,
-    #     n_runs=64,
+    #     n_runs=96,
     #     best_trials_pct=0.1,
     #     n_splits=3,
     #     n_test_splits=1,
     # )
-
+    # optimizer.read_saved_params()
+    # best_params = optimizer.cluster_and_aggregate(1)
+    data_dict = optimizer.load_data_from_parquet("train")
+    optimizer.plot_returns(data_dict, best_params)
+    data_dict = optimizer.load_data_from_parquet("test")
     optimizer.plot_returns(data_dict, best_params)
 
 
