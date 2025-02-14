@@ -835,8 +835,8 @@ file_path = (
 )
 preds_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
 
-# file_path = "BTCUSDT.csv"
-# preds_path = "results/"
+file_path = "BTCUSDT.csv"
+preds_path = "results/"
 
 
 sequence_length = 100
@@ -929,113 +929,113 @@ combined_anomalies = {}
 original_prices_buffer = []
 scaled_prices = []
 
-for model_name in model_names:
-    combined_scores[model_name] = []
-    combined_anomalies[model_name] = []
-    combined_predictions[model_name] = []
+# for model_name in model_names:
+#     combined_scores[model_name] = []
+#     combined_anomalies[model_name] = []
+#     combined_predictions[model_name] = []
 
-current_train_start = start_date
-current_train_end = current_train_start + train_initial_length
-current_test_start = current_train_end
-current_test_end = current_test_start + test_length
+# current_train_start = start_date
+# current_train_end = current_train_start + train_initial_length
+# current_test_start = current_train_end
+# current_test_end = current_test_start + test_length
 
-window_idx = 0
+# window_idx = 0
 
-while current_test_end <= end_date or current_test_start < end_date:
-    if current_test_end > end_date:
-        current_test_end = end_date
-    print(
-        f"\n=== Processing Window: Train {current_train_start} to {current_train_end}, "
-        f"Test {current_test_start} to {current_test_end} ==="
-    )
+# while current_test_end <= end_date or current_test_start < end_date:
+#     if current_test_end > end_date:
+#         current_test_end = end_date
+#     print(
+#         f"\n=== Processing Window: Train {current_train_start} to {current_train_end}, "
+#         f"Test {current_test_start} to {current_test_end} ==="
+#     )
 
-    train_data = data.loc[current_train_start:current_train_end]
-    test_data = data.loc[current_test_start:current_test_end]
+#     train_data = data.loc[current_train_start:current_train_end]
+#     test_data = data.loc[current_test_start:current_test_end]
 
-    validation_start = current_train_end - pd.Timedelta(days=30)
-    validation_data = train_data.loc[validation_start:current_train_end]
-    train_data = train_data.loc[:validation_start]
+#     validation_start = current_train_end - pd.Timedelta(days=30)
+#     validation_data = train_data.loc[validation_start:current_train_end]
+#     train_data = train_data.loc[:validation_start]
 
-    if test_data.empty:
-        break
+#     if test_data.empty:
+#         break
 
-    train_scaled = train_data["scaled_price"].to_numpy().reshape(-1, 1)
-    validation_scaled = validation_data["scaled_price"].to_numpy().reshape(-1, 1)
-    test_scaled = test_data["scaled_price"].to_numpy().reshape(-1, 1)
+#     train_scaled = train_data["scaled_price"].to_numpy().reshape(-1, 1)
+#     validation_scaled = validation_data["scaled_price"].to_numpy().reshape(-1, 1)
+#     test_scaled = test_data["scaled_price"].to_numpy().reshape(-1, 1)
 
-    original_prices_buffer.extend(test_data["close"].values[sequence_length:])
-    scaled_prices.extend(test_scaled[sequence_length:, 0])
+#     original_prices_buffer.extend(test_data["close"].values[sequence_length:])
+#     scaled_prices.extend(test_scaled[sequence_length:, 0])
 
-    train_torch = torch.tensor(train_scaled, dtype=torch.float32)
-    validation_torch = torch.tensor(validation_scaled, dtype=torch.float32)
-    test_torch = torch.tensor(test_scaled, dtype=torch.float32)
+#     train_torch = torch.tensor(train_scaled, dtype=torch.float32)
+#     validation_torch = torch.tensor(validation_scaled, dtype=torch.float32)
+#     test_torch = torch.tensor(test_scaled, dtype=torch.float32)
 
-    train_sequences = create_sequences(train_torch, sequence_length)
-    validation_sequences = create_sequences(validation_torch, sequence_length)
-    test_sequences = create_sequences(test_torch, sequence_length)
-    test_dates = test_data.index[sequence_length:]
-    combined_test_dates.extend(test_dates)
+#     train_sequences = create_sequences(train_torch, sequence_length)
+#     validation_sequences = create_sequences(validation_torch, sequence_length)
+#     test_sequences = create_sequences(test_torch, sequence_length)
+#     test_dates = test_data.index[sequence_length:]
+#     combined_test_dates.extend(test_dates)
 
-    for model_name in model_names:
-        print(f"\n=== Processing Model: {model_name} ===")
+#     for model_name in model_names:
+#         print(f"\n=== Processing Model: {model_name} ===")
 
-        # params = model_params[model_name]
-        # detector = AnomalyDetector(
-        #     model_name=model_name,
-        #     model_params=params,
-        #     sequence_length=sequence_length,
-        #     device=device,
-        # )
+#         # params = model_params[model_name]
+#         # detector = AnomalyDetector(
+#         #     model_name=model_name,
+#         #     model_params=params,
+#         #     sequence_length=sequence_length,
+#         #     device=device,
+#         # )
 
-        # if model_name not in ['egads', 'dtw']:
-        #     detector.train(
-        #         train_sequences=train_sequences,
-        #         num_epochs=10,
-        #         batch_size=32,
-        #         learning_rate=1e-3,
-        #         validation_sequences=validation_sequences,
-        #         early_stopping_patience=5,
-        #         reduce_lr_patience=3,
-        #     )
+#         # if model_name not in ['egads', 'dtw']:
+#         #     detector.train(
+#         #         train_sequences=train_sequences,
+#         #         num_epochs=10,
+#         #         batch_size=32,
+#         #         learning_rate=1e-3,
+#         #         validation_sequences=validation_sequences,
+#         #         early_stopping_patience=5,
+#         #         reduce_lr_patience=3,
+#         #     )
 
-        # torch.save(
-        #         detector.model.state_dict(),
-        #         f"{model_name}_window_{window_idx}.pth"
-        #     )
+#         # torch.save(
+#         #         detector.model.state_dict(),
+#         #         f"{model_name}_window_{window_idx}.pth"
+#         #     )
 
-        # if model_name == 'egads':
-        #     detector.train(
-        #         train_sequences=None,
-        #         train_raw=train_torch
-        #     )
-        # elif model_name == 'dtw':
-        #     detector.train(
-        #         train_sequences=train_sequences,
-        #         num_epochs=0,
-        #         batch_size=0,
-        #         learning_rate=0,
-        #         train_raw=None
-        #     )
+#         # if model_name == 'egads':
+#         #     detector.train(
+#         #         train_sequences=None,
+#         #         train_raw=train_torch
+#         #     )
+#         # elif model_name == 'dtw':
+#         #     detector.train(
+#         #         train_sequences=train_sequences,
+#         #         num_epochs=0,
+#         #         batch_size=0,
+#         #         learning_rate=0,
+#         #         train_raw=None
+#         #     )
 
-        # if model_name not in ['egads', 'dtw']:
-        #     scores, preds = detector.predict(test_sequences=test_sequences)
-        # elif model_name == 'egads':
-        #     scores, _ = detector.predict(test_raw=test_torch)
-        #     preds = np.zeros_like(scores)
-        #     scores = scores[sequence_length:]
-        #     preds = preds[sequence_length:]
-        # elif model_name == 'dtw':
-        #     scores, _ = detector.predict(test_sequences=test_sequences)
-        #     preds = np.zeros_like(scores)
+#         # if model_name not in ['egads', 'dtw']:
+#         #     scores, preds = detector.predict(test_sequences=test_sequences)
+#         # elif model_name == 'egads':
+#         #     scores, _ = detector.predict(test_raw=test_torch)
+#         #     preds = np.zeros_like(scores)
+#         #     scores = scores[sequence_length:]
+#         #     preds = preds[sequence_length:]
+#         # elif model_name == 'dtw':
+#         #     scores, _ = detector.predict(test_sequences=test_sequences)
+#         #     preds = np.zeros_like(scores)
 
-        # combined_scores[model_name].extend(scores)
-        # combined_predictions[model_name].extend(preds)
+#         # combined_scores[model_name].extend(scores)
+#         # combined_predictions[model_name].extend(preds)
 
-    window_idx += 1
+#     window_idx += 1
 
-    current_train_end += train_expand_step
-    current_test_start += train_expand_step
-    current_test_end = current_test_start + test_length
+#     current_train_end += train_expand_step
+#     current_test_start += train_expand_step
+#     current_test_end = current_test_start + test_length
 
 
 # del combined_scores["autoencoder"]
@@ -1182,6 +1182,7 @@ def calc_pl(data_dict, params):
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
     with_short = params.get("with_short", True)
+    ignore_anomalies = params.get("ignore_anomalies", False)
 
     for ticker, df in data_dict.items():
         if print_trades:
@@ -1196,17 +1197,20 @@ def calc_pl(data_dict, params):
         ma_data_long = df["close"].rolling(window=ma_window_long, min_periods=1).mean()
         scores = df["scores"].values  # array
 
-        rolling_anomalies = np.zeros_like(scores, dtype=bool)
+        if not ignore_anomalies:
+            rolling_anomalies = np.zeros_like(scores, dtype=bool)
 
-        for i in range(window_size_minutes, len(scores)):
-            start_idx = i - window_size_minutes
-            end_idx = i
-            window_slice = scores[start_idx:end_idx]
-            current_score = scores[i]
+            for i in range(window_size_minutes, len(scores)):
+                start_idx = i - window_size_minutes
+                end_idx = i
+                window_slice = scores[start_idx:end_idx]
+                current_score = scores[i]
 
-            rank = percentileofscore(window_slice, current_score, kind="rank")
-            if rank >= percentile:
-                rolling_anomalies[i] = True
+                rank = percentileofscore(window_slice, current_score, kind="rank")
+                if rank >= percentile:
+                    rolling_anomalies[i] = True
+        else:
+            rolling_anomalies = np.ones(len(scores), dtype=bool)
         if print_trades:
             print(rolling_anomalies.sum())
         profits, closed_trades = simulate_trading_std(
@@ -1269,13 +1273,24 @@ def calculate_sharpe_ratio(profits, risk_free_rate=0.0, annualization_factor=365
 
 
 def main():
-    for filename in os.listdir(preds_path):
-        if filename.endswith("_combined_scores_3m_20202024full.npy"):
-            model_name = filename.replace("_combined_scores_3m_20202024full.npy", "")
-            combined_scores[model_name] = np.load(
-                preds_path + filename, allow_pickle=True
-            )
-            print(f"Loaded combined_scores for {model_name} from {filename}")
+    arrs = np.load("results/data_2024.npz", allow_pickle=True)
+
+    combined_test_dates = arrs["combined_test_dates"]
+    scaled_prices = arrs["scaled_prices"]
+    original_prices_buffer = arrs["original_prices_buffer"]
+
+    ignore_anomalies = True
+
+    if not ignore_anomalies:
+        for filename in os.listdir(preds_path):
+            if filename.endswith("_combined_scores_3m_20202024full.npy"):
+                model_name = filename.replace(
+                    "_combined_scores_3m_20202024full.npy", ""
+                )
+                combined_scores[model_name] = np.load(
+                    preds_path + filename, allow_pickle=True
+                )
+                print(f"Loaded combined_scores for {model_name} from {filename}")
 
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_preds_3m_20202024.npy"):
@@ -1293,9 +1308,13 @@ def main():
 
     df["close"] = original_prices_buffer
     df["scaled_price"] = scaled_prices
-    df["scores"] = combined_scores[model_name]
-
     df["predicted_price"] = combined_predictions[model_name]
+
+    if not ignore_anomalies:
+        df["scores"] = combined_scores[model_name]
+
+    else:
+        df["scores"] = np.zeros_like(combined_test_dates)
 
     data_dict = {"BTCUSDT": df}
 
@@ -1317,14 +1336,15 @@ def main():
         "print_trades": True,
         "comission_rate": 0.0004,
         "sharpe": 2.4303645886258254,
+        "ignore_anomalies": ignore_anomalies,
     }
 
-    # start_date = "2021-06-01"
-    # end_date = "2021-12-31"
+    start_date = "2021-06-01"
+    end_date = "2021-12-31"
 
-    # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
+    data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
 
-    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+    results = calc_pl(data_dict, best_params)
 
     params = {
         "num_std": [1, 2, 3],
@@ -1343,10 +1363,11 @@ def main():
         "print_trades": False,
         "comission_rate": 0.0004,
         "with_short": [True, False],
+        "ignore_anomalies": [True, False],
     }
 
     save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
-    # save_path = "results/"
+    save_path = "results/"
     file_prefix = f"anomaly_"
 
     optimizer = ParameterOptimizer(
