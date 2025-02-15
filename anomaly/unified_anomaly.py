@@ -1183,6 +1183,7 @@ def calc_pl(data_dict, params):
     print_trades = params.get("print_trades", False)
     comission_rate = params.get("comission_rate", 0.0002)
     with_short = params.get("with_short", True)
+    ignore_anomalies = params["ignore_anomalies"]
 
     for ticker, df in data_dict.items():
         if print_trades:
@@ -1209,16 +1210,19 @@ def calc_pl(data_dict, params):
         #     if rank >= percentile:
         #         rolling_anomalies[i] = True
 
-        rolling_anomalies = detect_multi_scale_anomalies(
-            scores=scores,
-            window_sizes=[
-                window_size_minutes // 2,
-                window_size_minutes,
-                window_size_minutes * 2,
-                window_size_minutes * 3,
-            ],
-            multiplier=multiplier,
-        )
+        if not ignore_anomalies:
+            rolling_anomalies = detect_multi_scale_anomalies(
+                scores=scores,
+                window_sizes=[
+                    window_size_minutes // 2,
+                    window_size_minutes,
+                    window_size_minutes * 2,
+                    window_size_minutes * 3,
+                ],
+                multiplier=multiplier,
+            )
+        else:
+            rolling_anomalies = np.ones(len(scores), dtype=bool)
 
         if print_trades:
             print(rolling_anomalies.sum())
@@ -1312,6 +1316,10 @@ def main():
 
     ignore_anomalies = False
 
+    dates = pd.to_datetime(combined_test_dates)
+    df = pd.DataFrame(index=dates)
+    df.index.name = "datetime"
+
     if not ignore_anomalies:
         for filename in os.listdir(preds_path):
             if filename.endswith("_combined_scores_3m_20202024full.npy"):
@@ -1323,6 +1331,12 @@ def main():
                 )
                 print(f"Loaded combined_scores for {model_name} from {filename}")
 
+        df["scores"] = np.minimum(
+            combined_scores["kan"], combined_scores["autoencoder"]
+        )
+    else:
+        df["scores"] = np.zeros_like(combined_test_dates)
+
     for filename in os.listdir(preds_path):
         if filename.endswith("_combined_preds_3m_20202024.npy"):
             model_name = filename.replace("_combined_preds_3m_20202024.npy", "")
@@ -1333,13 +1347,9 @@ def main():
 
     model_name = "kan"
 
-    dates = pd.to_datetime(combined_test_dates)
-    df = pd.DataFrame(index=dates)
-    df.index.name = "datetime"
-
     df["close"] = original_prices_buffer
     df["scaled_price"] = scaled_prices
-    df["scores"] = np.minimum(combined_scores["kan"], combined_scores["autoencoder"])
+
     df["predicted_price"] = combined_predictions[model_name]
 
     data_dict = {"BTCUSDT": df}
@@ -1362,14 +1372,15 @@ def main():
         "comission_rate": 0.0004,
         "with_short": False,
         "multiplier": 2.0,
+        "ignore_anomalies": ignore_anomalies,
     }
 
     # start_date = "2021-06-01"
     # end_date = "2021-12-31"
 
-    # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[start_date:end_date]
+    # data_dict["BTCUSDT"] = data_dict["BTCUSDT"].loc[:end_date]
 
-    # results, closed_trades, rolling_anomalies = calc_pl(data_dict, best_params)
+    # results = calc_pl(data_dict, best_params)
 
     params = {
         "num_std": [1, 2, 3],
@@ -1389,6 +1400,7 @@ def main():
         "comission_rate": 0.0004,
         "with_short": [True, False],
         "multiplier": [1.8, 2.0, 2.2],
+        "ignore_anomalies": [True, False],
     }
 
     save_path = "/Users/alexanderdemachev/PycharmProjects/strategy/aq/portfolio_optimization/market_regimes/trading_models/anomaly/results/"
